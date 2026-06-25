@@ -1,6 +1,7 @@
 node_modules/
 dist/
 data/
+reports/
 .env
 .env.*
 *.log
