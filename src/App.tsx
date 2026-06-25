@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import {
-  BarChart3, FileSpreadsheet, LogOut, RefreshCw, Shield, Video,
+  BarChart3, FileSpreadsheet, LogOut, RefreshCw, Settings, Shield, Video,
 } from "lucide-react";
 import { clearToken, getToken, setToken } from "./api";
 import {
@@ -13,6 +13,7 @@ import { money, numberText, percent, roi } from "./lib/format";
 import { TrendChart } from "./components/TrendChart";
 import { PieChart } from "./components/PieChart";
 import { BarChart } from "./components/BarChart";
+import { AdminPanel } from "./components/AdminPanel";
 
 // ====== Login ======
 function Login({ onLogin }: { onLogin: (u: User) => void }) {
@@ -61,7 +62,7 @@ function KpiCard({ label, value, sub, accent, highlight }: {
 // ====== App ======
 export function App() {
   const [user, setUser] = useState<User | null>(null);
-  const [view, setView] = useState<"dashboard" | "materials">("dashboard");
+  const [view, setView] = useState<"dashboard" | "materials" | "admin">("dashboard");
   const [data, setData] = useState<DashboardData | null>(null);
   const [materials, setMaterials] = useState<MaterialMetric[]>([]);
   const [detail, setDetail] = useState<{ material: MaterialMetric; trends: MaterialMetric[] } | null>(null);
@@ -120,6 +121,9 @@ export function App() {
         <nav>
           <button className={`nav-btn ${view === "dashboard" ? "active" : ""}`} onClick={() => setView("dashboard")}><BarChart3 size={18} /> 数据仪表盘</button>
           <button className={`nav-btn ${view === "materials" ? "active" : ""}`} onClick={() => setView("materials")}><FileSpreadsheet size={18} /> 视频素材</button>
+          {isAdmin && (
+            <button className={`nav-btn ${view === "admin" ? "active" : ""}`} onClick={() => setView("admin")}><Settings size={18} /> 系统管理</button>
+          )}
         </nav>
         {isAdmin && (
           <button className="btn-ghost sync-btn" disabled={busy === "sync"} onClick={doSync}><RefreshCw size={16} className={busy === "sync" ? "spin" : ""} /> 同步数据</button>
@@ -136,7 +140,7 @@ export function App() {
         {/* Topbar */}
         <header className="topbar glass">
           <div>
-            <h2>{view === "dashboard" ? "数据仪表盘" : "视频素材"}</h2>
+            <h2>{view === "dashboard" ? "数据仪表盘" : view === "materials" ? "视频素材" : "系统管理"}</h2>
             <span>{rangeLabel(range)}</span>
           </div>
           <div className="filters">
@@ -369,6 +373,9 @@ export function App() {
             </div>
           </div>
         )}
+
+        {/* ====== Admin View ====== */}
+        {view === "admin" && isAdmin && <AdminPanel />}
       </main>
     </div>
   );

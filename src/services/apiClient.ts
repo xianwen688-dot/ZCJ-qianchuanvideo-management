@@ -61,3 +61,15 @@ export function updateSettings(data: Record<string, string>) {
     body: JSON.stringify(data),
   });
 }
+
+// ====== Feishu ======
+export function getFeishuConfig() {
+  return apiFetch<any>("/api/feishu/config");
+}
+
+export function setFeishuChatId(chatId: string) {
+  return apiFetch<any>("/api/feishu/config", {
+    method: "POST",
+    body: JSON.stringify({ chatId }),
+  });
+}
