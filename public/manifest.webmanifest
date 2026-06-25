@@ -1,0 +1,17 @@
+{
+  "name": "中草集视频投放管理",
+  "short_name": "视频投放",
+  "description": "中草集电商视频投放数据整理、脚本匹配与优化建议系统",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f7faf9",
+  "theme_color": "#0f766e",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

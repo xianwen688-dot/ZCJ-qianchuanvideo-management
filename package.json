@@ -1,0 +1,47 @@
+{
+  "name": "douyin-video-dashboard",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "server": "tsx server/index.ts",
+    "build": "tsc --noEmit && vite build",
+    "start": "tsx server/index.ts",
+    "check": "tsc --noEmit",
+    "import": "tsx server/import-cli.ts"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "^5.0.4",
+    "bcryptjs": "^3.0.2",
+    "chart.js": "^4.4.7",
+    "chartjs-adapter-date-fns": "^3.0.0",
+    "chokidar": "^4.0.3",
+    "csv-parse": "^6.1.0",
+    "date-fns": "^4.1.0",
+    "docx": "^9.7.1",
+    "express": "^5.1.0",
+    "iconv-lite": "^0.7.0",
+    "image-size": "^2.0.2",
+    "jsonwebtoken": "^9.0.2",
+    "jszip": "^3.10.1",
+    "lucide-react": "^0.468.0",
+    "mammoth": "^1.10.0",
+    "multer": "^2.1.1",
+    "node-cron": "^3.0.3",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "react-router-dom": "^7.16.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.3",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/multer": "^2.1.0",
+    "@types/node": "^24.5.2",
+    "@types/react": "^19.1.13",
+    "@types/react-dom": "^19.1.9",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2",
+    "vite": "^7.1.7"
+  }
+}
