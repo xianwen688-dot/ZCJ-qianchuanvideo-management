@@ -101,7 +101,7 @@ export async function importReportFile(filePath: string): Promise<ImportResult> 
      order_cost, gross_orders, actual_pay_amount, platform_subsidy, net_roi, net_gmv,
      net_orders, net_order_cost, net_settlement_rate, refund_rate_1h, refund_amount_1h,
      gmv_settlement_rate_7d, report_file_id, imported_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
   );
 
   const insertPlan = db.prepare(
@@ -109,7 +109,7 @@ export async function importReportFile(filePath: string): Promise<ImportResult> 
      gross_roi, order_cost, actual_pay_amount, platform_subsidy, net_roi, net_gmv,
      net_order_cost, net_orders, net_settlement_rate, refund_rate_1h, refund_amount_1h,
      gmv_settlement_rate_7d, settled_amount_7d, settled_amount_14d, report_file_id, imported_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
   );
 
   if (fileType === "video") {
