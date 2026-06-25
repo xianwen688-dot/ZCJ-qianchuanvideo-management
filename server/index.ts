@@ -2,12 +2,25 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import express from "express";
+import cron from "node-cron";
 import { PORT } from "./config";
 import { db, getSettings, setSetting } from "./db";
 import { createJob, failJob, finishJob, getJob, listJobs, startJob } from "./jobs";
 import { login, optionalAuth, requireAdmin } from "./auth";
 import { getDashboardData, runFullSync } from "./sync";
 import { startWatching } from "./watcher";
+import {
+  generateDailyReport,
+  generateWeeklyReport,
+  generateMonthlyReport,
+  saveReport,
+  getReportLogs,
+} from "./reports";
+import {
+  pushReport,
+  getFeishuConfig,
+  setFeishuChatId,
+} from "./feishu-client";
 
 const app = express();
 app.use(express.json({ limit: "30mb" }));
@@ -82,8 +95,6 @@ app.get("/api/dashboard", optionalAuth, (_req, res) => {
 });
 
 // ====== Materials API ======
-import { db as database } from "./db";
-
 app.get("/api/materials", optionalAuth, (req, res) => {
   const search = req.query.search ? String(req.query.search) : "";
   const sortBy = ["spend", "gross_roi", "gross_orders", "plays"].includes(String(req.query.sortBy ?? ""))
@@ -96,8 +107,8 @@ app.get("/api/materials", optionalAuth, (req, res) => {
   const params: (string | number)[] = [];
   if (search) { where += " AND material_name LIKE ?"; params.push(`%${search}%`); }
 
-  const total = (database.prepare(`SELECT COUNT(*) AS c FROM material_metrics ${where}`).get(...params) as { c: number }).c;
-  const items = database.prepare(
+  const total = (db.prepare(`SELECT COUNT(*) AS c FROM material_metrics ${where}`).get(...params) as { c: number }).c;
+  const items = db.prepare(
     `SELECT * FROM material_metrics ${where} ORDER BY ${sortBy} DESC LIMIT ? OFFSET ?`
   ).all(...params, limit, offset);
 
@@ -105,19 +116,82 @@ app.get("/api/materials", optionalAuth, (req, res) => {
 });
 
 app.get("/api/materials/:id", optionalAuth, (req, res) => {
-  const material = database.prepare("SELECT * FROM material_metrics WHERE id = ?").get(Number(req.params.id));
+  const material = db.prepare("SELECT * FROM material_metrics WHERE id = ?").get(Number(req.params.id));
   if (!material) { res.status(404).json({ error: "素材不存在" }); return; }
-  // 获取该素材的每日趋势
   const name = (material as any).material_name;
-  const trends = database.prepare(
+  const trends = db.prepare(
     "SELECT * FROM material_metrics WHERE material_name = ? AND metric_date != '全部' ORDER BY metric_date ASC"
   ).all(name);
   res.json({ material, trends });
 });
 
 app.delete("/api/materials/:id", requireAdmin, (req, res) => {
-  database.prepare("DELETE FROM material_metrics WHERE id = ?").run(Number(req.params.id));
+  db.prepare("DELETE FROM material_metrics WHERE id = ?").run(Number(req.params.id));
   res.json({ ok: true });
+});
+
+// ====== Reports API ======
+app.get("/api/reports", optionalAuth, (req, res) => {
+  const type = req.query.type ? String(req.query.type) : undefined;
+  res.json({ items: getReportLogs(type, 50) });
+});
+
+app.post("/api/reports/generate", requireAdmin, (req, res) => {
+  const reportType = String(req.body.reportType ?? "daily");
+  let result: { content: string; type: string; date: string };
+
+  if (reportType === "daily") {
+    const dateStr = req.body.date || undefined;
+    result = generateDailyReport(dateStr);
+  } else if (reportType === "weekly") {
+    result = generateWeeklyReport();
+  } else if (reportType === "monthly") {
+    result = generateMonthlyReport();
+  } else if (reportType === "manual") {
+    result = { ...generateDailyReport(), type: "manual" };
+  } else {
+    res.status(400).json({ error: "无效的报告类型" }); return;
+  }
+
+  const saved = saveReport(result.type as any, result.content, result.date, result.date);
+  res.json({ ...saved, type: result.type, date: result.date });
+});
+
+app.post("/api/reports/:type/push", requireAdmin, async (req, res) => {
+  const type = String(req.params.type);
+  let report;
+
+  if (type === "daily") report = generateDailyReport();
+  else if (type === "weekly") report = generateWeeklyReport();
+  else if (type === "monthly") report = generateMonthlyReport();
+  else { res.status(400).json({ error: "无效的报告类型" }); return; }
+
+  const saved = saveReport(report.type, report.content, report.date, report.date);
+
+  const title = type === "daily"
+    ? `千川视频投放日报 - ${report.date}`
+    : type === "weekly"
+    ? `千川视频投放周报 - ${report.date}`
+    : `千川视频投放月报 - ${report.date}`;
+
+  const pushResult = await pushReport(title, report.content, report.type);
+
+  // Update report log with feishu URL
+  if (pushResult.url) {
+    db.prepare("UPDATE report_log SET feishu_url = ? WHERE id = ?").run(pushResult.url, saved.id);
+  }
+
+  res.json({ ...saved, pushed: pushResult.ok, feishuUrl: pushResult.url ?? null });
+});
+
+// ====== Feishu Config API ======
+app.get("/api/feishu/config", requireAdmin, (_req, res) => {
+  res.json(getFeishuConfig());
+});
+
+app.post("/api/feishu/config", requireAdmin, (req, res) => {
+  if (!req.body.chatId) { res.status(400).json({ error: "缺少 chatId" }); return; }
+  res.json(setFeishuChatId(String(req.body.chatId)));
 });
 
 // ====== Jobs API ======
@@ -141,12 +215,67 @@ if (fs.existsSync(distPath)) {
   });
 }
 
+// ====== Cron: Daily Report 9:30 ======
+cron.schedule("30 9 * * *", async () => {
+  console.log("[cron] 开始生成日报...");
+  try {
+    const report = generateDailyReport();
+    const saved = saveReport("daily", report.content, report.date, report.date);
+    const result = await pushReport(`千川视频投放日报 - ${report.date}`, report.content, "daily");
+    if (result.ok) {
+      db.prepare("UPDATE report_log SET feishu_url = ? WHERE id = ?").run(result.url ?? null, saved.id);
+    }
+    console.log(`[cron] 日报完成: ${saved.path}${result.url ? ` → ${result.url}` : ""}`);
+  } catch (err) {
+    console.error("[cron] 日报生成失败:", err);
+  }
+});
+
+// ====== Cron: Weekly Report every Monday 9:30 ======
+cron.schedule("30 9 * * 1", async () => {
+  console.log("[cron] 开始生成周报...");
+  try {
+    const report = generateWeeklyReport();
+    const saved = saveReport("weekly", report.content, report.date, report.date);
+    const result = await pushReport(`千川视频投放周报 - ${report.date}`, report.content, "weekly");
+    if (result.ok) {
+      db.prepare("UPDATE report_log SET feishu_url = ? WHERE id = ?").run(result.url ?? null, saved.id);
+    }
+    console.log(`[cron] 周报完成: ${saved.path}`);
+  } catch (err) {
+    console.error("[cron] 周报生成失败:", err);
+  }
+});
+
+// ====== Cron: Monthly Report 1st of month 9:30 ======
+cron.schedule("30 9 1 * *", async () => {
+  console.log("[cron] 开始生成月报...");
+  try {
+    const report = generateMonthlyReport();
+    const saved = saveReport("monthly", report.content, report.date, report.date);
+    const result = await pushReport(`千川视频投放月报 - ${report.date}`, report.content, "monthly");
+    if (result.ok) {
+      db.prepare("UPDATE report_log SET feishu_url = ? WHERE id = ?").run(result.url ?? null, saved.id);
+    }
+    console.log(`[cron] 月报完成: ${saved.path}`);
+  } catch (err) {
+    console.error("[cron] 月报生成失败:", err);
+  }
+});
+
+// ====== Cron: Hourly alert check ======
+cron.schedule("0 * * * *", async () => {
+  console.log("[cron] 预警检查...");
+  // Phase 5 - placeholder for now
+});
+
 // ====== Start ======
 app.listen(PORT, "0.0.0.0", () => {
   const hostname = os.hostname();
   console.log(`抖音视频投放管理系统`);
   console.log(`  Local:  http://localhost:${PORT}`);
   console.log(`  LAN:    http://${hostname}:${PORT}`);
+  console.log(`  定时任务: 日报(每日9:30) 周报(周一9:30) 月报(每月1日9:30)`);
 
   // 启动文件监控
   startWatching(
