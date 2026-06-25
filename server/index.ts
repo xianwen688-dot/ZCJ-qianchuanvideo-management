@@ -21,6 +21,7 @@ import {
   getFeishuConfig,
   setFeishuChatId,
 } from "./feishu-client";
+import { runAllChecks, notifyHighAlerts, getAlerts, resolveAlert } from "./alerts";
 
 const app = express();
 app.use(express.json({ limit: "30mb" }));
@@ -192,6 +193,26 @@ app.get("/api/feishu/config", requireAdmin, (_req, res) => {
 app.post("/api/feishu/config", requireAdmin, (req, res) => {
   if (!req.body.chatId) { res.status(400).json({ error: "缺少 chatId" }); return; }
   res.json(setFeishuChatId(String(req.body.chatId)));
+});
+
+// ====== Alerts API ======
+app.get("/api/alerts", optionalAuth, (req, res) => {
+  const level = req.query.level ? String(req.query.level) : undefined;
+  res.json({ items: getAlerts(level, 100) });
+});
+
+app.post("/api/alerts/check", requireAdmin, async (_req, res) => {
+  try {
+    const result = runAllChecks();
+    await notifyHighAlerts();
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+app.post("/api/alerts/:id/resolve", requireAdmin, (req, res) => {
+  res.json(resolveAlert(Number(req.params.id)));
 });
 
 // ====== Jobs API ======
