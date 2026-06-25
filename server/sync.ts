@@ -5,6 +5,32 @@ import { DATA_PATHS } from "./config";
 import { detectFileType } from "./parser";
 import { importReportFile, type ImportResult } from "./importer";
 
+// ====== 日期过滤辅助 ======
+interface DateFilter {
+  from?: string;
+  to?: string;
+}
+
+function dateClause(table: string, df?: DateFilter): { where: string; params: string[] } {
+  if (df?.from && df?.to) {
+    return {
+      where: `WHERE ${table}.metric_date BETWEEN ? AND ?`,
+      params: [df.from, df.to],
+    };
+  }
+  return { where: `WHERE ${table}.metric_date = '全部'`, params: [] };
+}
+
+function dateClauseAll(df?: DateFilter): { where: string; params: string[] } {
+  if (df?.from && df?.to) {
+    return {
+      where: "WHERE metric_date BETWEEN ? AND ?",
+      params: [df.from, df.to],
+    };
+  }
+  return { where: "WHERE metric_date = '全部'", params: [] };
+}
+
 // ====== 全量同步 ======
 export interface SyncResult {
   startedAt: string;
@@ -62,11 +88,11 @@ export async function runFullSync(): Promise<SyncResult> {
   return result;
 }
 
-// ====== Dashboard 查询 ======
+// ====== Dashboard 查询 (支持日期范围) ======
 
-/** 商品维度 Dashboard 汇总 (来源: product_metrics) */
-export function getProductSummary() {
-  // 所有"全部"行求和
+/** 商品维度汇总 */
+export function getProductSummary(df?: DateFilter) {
+  const dc = dateClauseAll(df);
   const row = db.prepare(`
     SELECT
       SUM(spend) AS spend,
@@ -77,8 +103,8 @@ export function getProductSummary() {
       SUM(refund_amount_1h) AS refund_amount_1h,
       SUM(actual_pay_amount) AS actual_pay_amount
     FROM product_metrics
-    WHERE metric_date = '全部'
-  `).get() as Record<string, number | null>;
+    ${dc.where}
+  `).get(...dc.params) as Record<string, number | null>;
 
   const spend = row.spend ?? 0;
   const grossGmv = row.gross_gmv ?? 0;
@@ -96,36 +122,34 @@ export function getProductSummary() {
     net_orders: netOrders,
     gross_orders: grossOrders,
     refund_amount_1h: refund1h,
-    // 减15%退货率净成交ROI
     conservative_roi: spend > 0 ? (netGmv * 0.85) / spend : 0,
   };
 }
 
-/** 祛痘类产品专项 (含"苦参"或"祛痘"的5个产品) */
-export function getAcneStats() {
+/** 祛痘类专项 */
+export function getAcneStats(df?: DateFilter) {
+  const dc = dateClauseAll(df);
   const rows = db.prepare(`
-    SELECT product_name, spend, net_gmv, net_roi, net_orders, refund_amount_1h
+    SELECT product_name, SUM(spend) AS spend, SUM(net_gmv) AS net_gmv,
+           SUM(net_orders) AS net_orders, SUM(refund_amount_1h) AS refund_amount_1h
     FROM product_metrics
-    WHERE metric_date = '全部'
+    ${dc.where}
       AND (product_name LIKE '%苦参%' OR product_name LIKE '%祛痘%')
+    GROUP BY product_name
     ORDER BY spend DESC
-  `).all() as Array<Record<string, number>>;
+  `).all(...dc.params) as Array<Record<string, number>>;
 
   const totalSpend = rows.reduce((s, r) => s + (r.spend ?? 0), 0);
   const totalNet = rows.reduce((s, r) => s + (r.net_gmv ?? 0), 0);
   const totalOrders = rows.reduce((s, r) => s + (r.net_orders ?? 0), 0);
   const totalRefund = rows.reduce((s, r) => s + (r.refund_amount_1h ?? 0), 0);
 
-  // 4个套装产品的净订单 (含精华霜)
   const targetProducts = ["苦参祛痘精华霜", "苦参祛痘2件套", "苦参祛痘4件套", "苦参祛痘组合"];
   const jinghuaOrders = rows
     .filter((r) => targetProducts.some((t) => String(r.product_name ?? "").includes(t)))
     .reduce((s, r) => s + (r.net_orders ?? 0), 0);
 
-  // 总消耗占比
-  const allSpend = (db.prepare(
-    `SELECT SUM(spend) AS total FROM product_metrics WHERE metric_date = '全部'`
-  ).get() as { total: number }).total ?? 1;
+  const allSpend = (db.prepare(`SELECT SUM(spend) AS total FROM product_metrics ${dc.where}`).get(...dc.params) as { total: number }).total ?? 1;
 
   return {
     spend: totalSpend,
@@ -139,27 +163,23 @@ export function getAcneStats() {
       name: r.product_name,
       spend: r.spend,
       net_gmv: r.net_gmv,
-      net_roi: r.net_roi,
+      net_roi: r.spend > 0 ? (r.net_gmv ?? 0) / r.spend : 0,
       net_orders: r.net_orders,
     })),
   };
 }
 
 /** 视频维度汇总 */
-export function getVideoSummary() {
+export function getVideoSummary(df?: DateFilter) {
+  const dc = dateClauseAll(df);
   const row = db.prepare(`
     SELECT
-      SUM(spend) AS spend,
-      SUM(gross_gmv) AS gross_gmv,
-      SUM(net_gmv) AS net_gmv,
-      SUM(net_orders) AS net_orders,
-      SUM(plays) AS plays,
-      SUM(clicks) AS clicks,
-      SUM(impressions) AS impressions,
-      COUNT(DISTINCT material_name) AS material_count
+      SUM(spend) AS spend, SUM(gross_gmv) AS gross_gmv, SUM(net_gmv) AS net_gmv,
+      SUM(net_orders) AS net_orders, SUM(plays) AS plays, SUM(clicks) AS clicks,
+      SUM(impressions) AS impressions, COUNT(DISTINCT material_name) AS material_count
     FROM material_metrics
-    WHERE metric_date = '全部'
-  `).get() as Record<string, number | null>;
+    ${dc.where}
+  `).get(...dc.params) as Record<string, number | null>;
 
   const spend = row.spend ?? 0;
   const plays = row.plays ?? 0;
@@ -179,85 +199,94 @@ export function getVideoSummary() {
   };
 }
 
-/** TOP N 消耗素材 */
-export function getTopMaterials(limit = 10, sortBy: "spend" | "gross_roi" | "gross_orders" = "spend") {
+/** TOP N */
+export function getTopMaterials(limit = 10, sortBy: "spend" | "gross_roi" | "gross_orders" = "spend", df?: DateFilter) {
+  const dc = dateClauseAll(df);
   const orderCol = sortBy === "gross_roi" ? "gross_roi" : sortBy === "gross_orders" ? "gross_orders" : "spend";
   return db.prepare(`
-    SELECT material_name, spend, gross_gmv, gross_roi, gross_orders, plays, completion_rate, click_rate
+    SELECT material_name, SUM(spend) AS spend, SUM(gross_gmv) AS gross_gmv,
+           CASE WHEN SUM(spend) > 0 THEN SUM(gross_gmv)/SUM(spend) ELSE 0 END AS gross_roi,
+           SUM(gross_orders) AS gross_orders, SUM(plays) AS plays,
+           AVG(completion_rate) AS completion_rate, AVG(click_rate) AS click_rate
     FROM material_metrics
-    WHERE metric_date = '全部' AND material_name != 'AIGC动态创意视频素材集合'
+    ${dc.where} AND material_name != 'AIGC动态创意视频素材集合'
+    GROUP BY material_name
     ORDER BY ${orderCol} DESC
     LIMIT ?
-  `).all(limit);
+  `).all(...dc.params, limit);
 }
 
-/** 日维度趋势数据 */
-export function getDailyTrends() {
+/** 日趋势 */
+export function getDailyTrends(df?: DateFilter) {
+  if (df?.from && df?.to) {
+    return db.prepare(`
+      SELECT metric_date AS date, SUM(spend) AS spend, SUM(gross_gmv) AS gmv,
+             SUM(net_gmv) AS net_gmv, SUM(net_orders) AS orders
+      FROM product_metrics
+      WHERE metric_date BETWEEN ? AND ?
+      GROUP BY metric_date ORDER BY metric_date ASC
+    `).all(df.from, df.to);
+  }
   return db.prepare(`
-    SELECT metric_date AS date,
-      SUM(spend) AS spend,
-      SUM(gross_gmv) AS gmv,
-      SUM(net_gmv) AS net_gmv,
-      SUM(net_orders) AS orders
+    SELECT metric_date AS date, SUM(spend) AS spend, SUM(gross_gmv) AS gmv,
+           SUM(net_gmv) AS net_gmv, SUM(net_orders) AS orders
     FROM product_metrics
     WHERE metric_date != '全部' AND metric_date != ''
-    GROUP BY metric_date
-    ORDER BY metric_date ASC
+    GROUP BY metric_date ORDER BY metric_date ASC
   `).all();
 }
 
-/** 素材来源分布（根据素材名称规则分类） */
-export function getSourceDistribution() {
+/** 来源分布 */
+export function getSourceDistribution(df?: DateFilter) {
+  const dc = dateClauseAll(df);
   const rows = db.prepare(`
     SELECT material_name, SUM(spend) AS spend
     FROM material_metrics
-    WHERE metric_date = '全部' AND material_name != 'AIGC动态创意视频素材集合'
+    ${dc.where} AND material_name != 'AIGC动态创意视频素材集合'
     GROUP BY material_name
-  `).all() as Array<{ material_name: string; spend: number }>;
+  `).all(...dc.params) as Array<{ material_name: string; spend: number }>;
 
-  let aigc = 0;
-  let daren = 0;
-  let local = 0;
-
+  let aigc = 0, daren = 0, local = 0;
   for (const row of rows) {
     const name = row.material_name;
-    if (/AIGC|AI生成/i.test(name)) {
-      aigc += row.spend;
-    } else if (/达人/i.test(name)) {
-      daren += row.spend;
-    } else {
-      local += row.spend;
-    }
+    if (/AIGC|AI生成|AI剪辑|ai剪辑|ai生成|半ai|纯AI|半AI/i.test(name)) aigc += row.spend;
+    else if (/达人|素人/i.test(name)) daren += row.spend;
+    else local += row.spend;
   }
-
   return [
     { label: "本地上传", value: local },
-    { label: "AIGC", value: aigc },
+    { label: "AIGC/AI剪辑", value: aigc },
     { label: "达人素材", value: daren },
   ].filter((d) => d.value > 0);
 }
 
-/** Dashboard 完整数据 */
-export function getDashboardData() {
-  return {
-    summary: getProductSummary(),
-    acne: getAcneStats(),
-    video: getVideoSummary(),
-    topMaterials: getTopMaterials(10, "spend"),
-    trends: getDailyTrends(),
-    topByRoi: getTopMaterials(10, "gross_roi"),
-    topByOrders: getTopMaterials(10, "gross_orders"),
-    sourceDist: getSourceDistribution(),
-    planSummary: getPlanSummary(),
-  };
+/** 计划汇总 */
+export function getPlanSummary(df?: DateFilter) {
+  const dc = dateClauseAll(df);
+  return db.prepare(`
+    SELECT plan_name, SUM(spend) AS spend, SUM(gross_gmv) AS gross_gmv,
+           CASE WHEN SUM(spend)>0 THEN SUM(gross_gmv)/SUM(spend) ELSE 0 END AS gross_roi,
+           SUM(net_gmv) AS net_gmv,
+           CASE WHEN SUM(spend)>0 THEN SUM(net_gmv)/SUM(spend) ELSE 0 END AS net_roi,
+           SUM(net_orders) AS net_orders
+    FROM plan_metrics
+    ${dc.where}
+    GROUP BY plan_name
+    ORDER BY spend DESC
+  `).all(...dc.params);
 }
 
-/** 计划维度汇总 */
-export function getPlanSummary() {
-  return db.prepare(`
-    SELECT plan_name, spend, gross_gmv, gross_roi, net_gmv, net_roi, net_orders
-    FROM plan_metrics
-    WHERE metric_date = '全部'
-    ORDER BY spend DESC
-  `).all();
+/** Dashboard 完整 */
+export function getDashboardData(df?: DateFilter) {
+  return {
+    summary: getProductSummary(df),
+    acne: getAcneStats(df),
+    video: getVideoSummary(df),
+    topMaterials: getTopMaterials(10, "spend", df),
+    trends: getDailyTrends(df),
+    topByRoi: getTopMaterials(10, "gross_roi", df),
+    topByOrders: getTopMaterials(10, "gross_orders", df),
+    sourceDist: getSourceDistribution(df),
+    planSummary: getPlanSummary(df),
+  };
 }

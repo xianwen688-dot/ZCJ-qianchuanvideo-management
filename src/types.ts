@@ -180,4 +180,4 @@ export interface Job {
   created_at: string;
 }
 
-export type DateMode = "day" | "week" | "month";
+export type DateMode = "day" | "week" | "month" | "custom";

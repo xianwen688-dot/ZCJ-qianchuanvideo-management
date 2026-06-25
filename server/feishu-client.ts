@@ -3,8 +3,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { db, setSetting } from "./db";
 
-// ====== lark-cli 路径 ======
+// ====== lark-cli / cc-connect 路径 ======
 const LARK_BIN = process.env.LARK_BIN || "lark-cli";
+const CC_CONNECT_BIN = process.env.CC_CONNECT_BIN || "cc-connect";
 
 interface LARK_CLI {
   profile: string;

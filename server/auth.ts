@@ -70,6 +70,19 @@ export function optionalAuth(req: Request, _res: Response, next: NextFunction) {
 }
 
 export function requireAdmin(req: Request, res: Response, next: NextFunction) {
+  // First authenticate, then check role
+  const header = req.headers.authorization;
+  const token = header?.startsWith("Bearer ") ? header.slice(7) : "";
+  if (!token) {
+    res.status(401).json({ error: "未登录" });
+    return;
+  }
+  try {
+    req.user = jwt.verify(token, getSetting("jwtSecret")) as AuthUser;
+  } catch {
+    res.status(401).json({ error: "登录已过期，请重新登录" });
+    return;
+  }
   if (req.user?.role !== "admin") {
     res.status(403).json({ error: "需要管理员权限" });
     return;

@@ -22,6 +22,7 @@ import {
   setFeishuChatId,
 } from "./feishu-client";
 import { runAllChecks, notifyHighAlerts, getAlerts, resolveAlert } from "./alerts";
+import { listMatchingVideos } from "./video-finder";
 
 const app = express();
 app.use(express.json({ limit: "30mb" }));
@@ -91,8 +92,38 @@ app.get("/api/sync/diagnostics", requireAdmin, (_req, res) => {
 });
 
 // ====== Dashboard API ======
-app.get("/api/dashboard", optionalAuth, (_req, res) => {
-  res.json(getDashboardData());
+app.get("/api/dashboard", optionalAuth, (req, res) => {
+  const from = req.query.from ? String(req.query.from) : undefined;
+  const to = req.query.to ? String(req.query.to) : undefined;
+  const dateFilter = from && to ? { from, to } : undefined;
+  res.json(getDashboardData(dateFilter));
+});
+
+// ====== Video Stream ======
+app.get("/api/video/stream", optionalAuth, (req, res) => {
+  const filePath = req.query.path ? String(req.query.path) : "";
+  if (!filePath || !fs.existsSync(filePath)) { res.status(404).send("not found"); return; }
+  const stat = fs.statSync(filePath);
+  const ext = path.extname(filePath).toLowerCase();
+  const mime: Record<string, string> = { ".mp4": "video/mp4", ".webm": "video/webm", ".mov": "video/quicktime", ".avi": "video/x-msvideo" };
+  res.setHeader("Content-Type", mime[ext] || "video/mp4");
+  res.setHeader("Content-Length", stat.size);
+  res.setHeader("Accept-Ranges", "bytes");
+  // Handle range requests for video seeking
+  const range = req.headers.range;
+  if (range) {
+    const parts = range.replace(/bytes=/, "").split("-");
+    const start = parseInt(parts[0], 10);
+    const end = parts[1] ? parseInt(parts[1], 10) : stat.size - 1;
+    const chunkSize = end - start + 1;
+    res.status(206);
+    res.setHeader("Content-Range", `bytes ${start}-${end}/${stat.size}`);
+    res.setHeader("Content-Length", chunkSize);
+    const stream = fs.createReadStream(filePath, { start, end });
+    stream.pipe(res);
+  } else {
+    fs.createReadStream(filePath).pipe(res);
+  }
 });
 
 // ====== Materials API ======
@@ -116,13 +147,21 @@ app.get("/api/materials", optionalAuth, (req, res) => {
   res.json({ items, total, limit, offset });
 });
 
+// ====== Video Finder API ======
+app.get("/api/video/find", optionalAuth, (req, res) => {
+  const name = req.query.name ? String(req.query.name) : "";
+  if (!name) { res.json({ found: false }); return; }
+  const paths = listMatchingVideos(name);
+  res.json({ found: paths.length > 0, paths: paths.slice(0, 5) });
+});
+
 app.get("/api/materials/:id", optionalAuth, (req, res) => {
   const material = db.prepare("SELECT * FROM material_metrics WHERE id = ?").get(Number(req.params.id));
   if (!material) { res.status(404).json({ error: "素材不存在" }); return; }
-  const name = (material as any).material_name;
+  const mn = (material as Record<string, unknown>).material_name as string;
   const trends = db.prepare(
     "SELECT * FROM material_metrics WHERE material_name = ? AND metric_date != '全部' ORDER BY metric_date ASC"
-  ).all(name);
+  ).all(mn);
   res.json({ material, trends });
 });
 

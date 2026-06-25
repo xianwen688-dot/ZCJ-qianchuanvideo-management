@@ -1,14 +1,12 @@
-/** 金额格式化 */
+/** 金额格式化 — 始终显示完整数字 */
 export function money(value: number | null | undefined): string {
   const n = value ?? 0;
-  if (Math.abs(n) >= 10000) return `¥${(n / 10000).toFixed(n >= 100000 ? 0 : 1)}万`;
-  return `¥${n.toLocaleString("zh-CN", { maximumFractionDigits: 0 })}`;
+  return `¥${n.toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
-/** 数字格式化 */
+/** 数字格式化 — 始终显示完整数字 */
 export function numberText(value: number | null | undefined): string {
   const n = value ?? 0;
-  if (n >= 10000) return `${(n / 10000).toFixed(1)}万`;
   return n.toLocaleString("zh-CN");
 }
 

@@ -30,16 +30,22 @@ export async function importReportFile(filePath: string): Promise<ImportResult> 
 
   const hash = sha256File(filePath);
   const stat = fs.statSync(filePath);
-  const existing = db.prepare("SELECT id, hash, status FROM report_files WHERE path = ?").get(filePath) as
-    | { id: number; hash: string; status: string }
+  // Hash-based dedup: check ALL report_files (not just by path, because E: and Z: are mirrors)
+  const existingByHash = db.prepare("SELECT id, status FROM report_files WHERE hash = ?").get(hash) as
+    | { id: number; status: string }
     | undefined;
 
-  if (existing?.hash === hash && existing.status === "imported") {
+  if (existingByHash?.status === "imported") {
     return {
       fileType, fileName: path.basename(filePath), rows: 0, inserted: 0, skipped: true,
       from: "", to: "",
     };
   }
+
+  // Check by path (for re-import of changed files)
+  const existing = db.prepare("SELECT id FROM report_files WHERE path = ?").get(filePath) as
+    | { id: number }
+    | undefined;
 
   // 删除旧数据后重新导入
   if (existing) {

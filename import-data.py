@@ -1,4 +1,4 @@
-"""Import CSV data -> SQLite. Hash dedup across all paths. Video & Product only (plan skipped due to column count issues)."""
+"""Import CSV data -> SQLite. Hash dedup across all paths."""
 import csv, sqlite3, hashlib, os, json
 
 DB = r'D:\douyin-video-dashboard\data\app.db'
@@ -55,7 +55,7 @@ for root in DATA_DIRS:
             if not fn.endswith('.csv'): continue
             fp = os.path.join(sd, fn)
             ft = detect_type(fn)
-            if ft != 'video' and ft != 'product': continue
+            if ft not in ('video','product','plan'): continue
 
             fh = sha256_file(fp)
             if fh in seen_hashes:
@@ -131,6 +131,33 @@ for root in DATA_DIRS:
                          parse_pct(get_field(row,hdrs,['1小时内退款率'])),parse_num(get_field(row,hdrs,['1小时内退款金额'])),
                          parse_pct(get_field(row,hdrs,['7日GMV结算率'])),
                          fid,now))
+                    ins += 1
+
+                elif ft == 'plan':
+                    pn = get_field(row, hdrs, ['计划名称'])
+                    pid = get_field(row, hdrs, ['计划ID'])
+                    if not pid: continue
+                    s = parse_num(get_field(row, hdrs, ['整体消耗']))
+                    ng = parse_num(get_field(row, hdrs, ['净成交金额']))
+                    gg = parse_num(get_field(row, hdrs, ['整体成交金额']))
+                    conn.execute('''INSERT INTO plan_metrics
+                        (plan_name, plan_id, metric_date, spend, gross_orders, gross_gmv,
+                         gross_roi, order_cost, actual_pay_amount, platform_subsidy,
+                         net_roi, net_gmv, net_order_cost, net_orders, net_settlement_rate,
+                         refund_rate_1h, refund_amount_1h, gmv_settlement_rate_7d,
+                         settled_amount_7d, settled_amount_14d, report_file_id, imported_at)
+                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
+                        (pn, pid, get_field(row, hdrs, ['日期']),
+                         s, int(parse_num(get_field(row, hdrs, ['整体成交订单数']))), gg,
+                         round(s>0 and gg/s or 0,4), parse_num(get_field(row, hdrs, ['整体成交订单成本'])),
+                         parse_num(get_field(row, hdrs, ['用户实际支付金额'])), parse_num(get_field(row, hdrs, ['电商平台补贴金额'])),
+                         round(s>0 and ng/s or 0,4), ng,
+                         parse_num(get_field(row, hdrs, ['净成交订单成本'])), int(parse_num(get_field(row, hdrs, ['净成交订单数']))),
+                         parse_pct(get_field(row, hdrs, ['净成交金额结算率'])),
+                         parse_pct(get_field(row, hdrs, ['1小时内退款率'])), parse_num(get_field(row, hdrs, ['1小时内退款金额'])),
+                         parse_pct(get_field(row, hdrs, ['7日GMV结算率'])),
+                         parse_num(get_field(row, hdrs, ['7日结算金额'])), parse_num(get_field(row, hdrs, ['14日结算金额'])),
+                         fid, now))
                     ins += 1
 
             print(f'  OK {fn}: {len(rows)} rows -> {ins} [{ft}]')
