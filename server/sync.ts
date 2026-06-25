@@ -206,6 +206,37 @@ export function getDailyTrends() {
   `).all();
 }
 
+/** 素材来源分布（根据素材名称规则分类） */
+export function getSourceDistribution() {
+  const rows = db.prepare(`
+    SELECT material_name, SUM(spend) AS spend
+    FROM material_metrics
+    WHERE metric_date = '全部' AND material_name != 'AIGC动态创意视频素材集合'
+    GROUP BY material_name
+  `).all() as Array<{ material_name: string; spend: number }>;
+
+  let aigc = 0;
+  let daren = 0;
+  let local = 0;
+
+  for (const row of rows) {
+    const name = row.material_name;
+    if (/AIGC|AI生成/i.test(name)) {
+      aigc += row.spend;
+    } else if (/达人/i.test(name)) {
+      daren += row.spend;
+    } else {
+      local += row.spend;
+    }
+  }
+
+  return [
+    { label: "本地上传", value: local },
+    { label: "AIGC", value: aigc },
+    { label: "达人素材", value: daren },
+  ].filter((d) => d.value > 0);
+}
+
 /** Dashboard 完整数据 */
 export function getDashboardData() {
   return {
@@ -216,5 +247,17 @@ export function getDashboardData() {
     trends: getDailyTrends(),
     topByRoi: getTopMaterials(10, "gross_roi"),
     topByOrders: getTopMaterials(10, "gross_orders"),
+    sourceDist: getSourceDistribution(),
+    planSummary: getPlanSummary(),
   };
+}
+
+/** 计划维度汇总 */
+export function getPlanSummary() {
+  return db.prepare(`
+    SELECT plan_name, spend, gross_gmv, gross_roi, net_gmv, net_roi, net_orders
+    FROM plan_metrics
+    WHERE metric_date = '全部'
+    ORDER BY spend DESC
+  `).all();
 }

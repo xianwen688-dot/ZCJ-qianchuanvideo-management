@@ -118,6 +118,21 @@ export interface TrendPoint {
   orders: number;
 }
 
+export interface SourceDist {
+  label: string;
+  value: number;
+}
+
+export interface PlanSummary {
+  plan_name: string;
+  spend: number;
+  gross_gmv: number;
+  gross_roi: number;
+  net_gmv: number;
+  net_roi: number;
+  net_orders: number;
+}
+
 export interface DashboardData {
   summary: ProductSummary;
   acne: AcneStats;
@@ -126,6 +141,8 @@ export interface DashboardData {
   trends: TrendPoint[];
   topByRoi: MaterialMetric[];
   topByOrders: MaterialMetric[];
+  sourceDist: SourceDist[];
+  planSummary: PlanSummary[];
 }
 
 // ====== API 通用类型 ======

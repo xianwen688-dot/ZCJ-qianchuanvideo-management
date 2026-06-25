@@ -1,18 +1,18 @@
 import { useEffect, useState, useCallback } from "react";
 import {
-  BarChart3, Database, FileSpreadsheet, LogOut, RefreshCw,
-  Settings as SettingsIcon, Shield, TrendingUp, Video,
+  BarChart3, FileSpreadsheet, LogOut, RefreshCw, Shield, Video,
 } from "lucide-react";
 import { clearToken, getToken, setToken } from "./api";
 import {
   getDashboard, getMaterials, getMaterialDetail, deleteMaterial,
   runSync, getCurrentUser, loginUser,
 } from "./services/apiClient";
-import type {
-  User, DashboardData, MaterialMetric, DateMode,
-} from "./types";
+import type { User, DashboardData, MaterialMetric, DateMode } from "./types";
 import { getDateRange, rangeLabel, today } from "./lib/date";
 import { money, numberText, percent, roi } from "./lib/format";
+import { TrendChart } from "./components/TrendChart";
+import { PieChart } from "./components/PieChart";
+import { BarChart } from "./components/BarChart";
 
 // ====== Login ======
 function Login({ onLogin }: { onLogin: (u: User) => void }) {
@@ -33,10 +33,10 @@ function Login({ onLogin }: { onLogin: (u: User) => void }) {
         <div className="logo-icon">🎬</div>
         <h1>抖音视频投放管理</h1>
         <button type="button" className="btn-ghost" onClick={() => onLogin({ id: 0, username: "访客", role: "viewer" })}>直接访问（只读）</button>
-        <button type="button" className="btn-text" onClick={() => setShow((v) => !v)}><Shield size={16} /> 管理员登录</button>
+        <button type="button" className="btn-text" onClick={() => setShow(v => !v)}><Shield size={16} /> 管理员登录</button>
         {show && <>
-          <label>账号 <input value={u} autoComplete="username" onChange={(e) => setU(e.target.value)} /></label>
-          <label>密码 <input value={p} type="password" autoComplete="current-password" onChange={(e) => setP(e.target.value)} /></label>
+          <label>账号 <input value={u} autoComplete="username" onChange={e => setU(e.target.value)} /></label>
+          <label>密码 <input value={p} type="password" autoComplete="current-password" onChange={e => setP(e.target.value)} /></label>
         </>}
         {err && <p className="error">{err}</p>}
         {show && <button className="btn-primary" disabled={busy} type="submit"><Shield size={16} /> {busy ? "登录中..." : "确认登录"}</button>}
@@ -74,6 +74,9 @@ export function App() {
 
   const isAdmin = user?.role === "admin";
   const range = getDateRange(selectedDate, dateMode);
+  const summary = data?.summary;
+  const acne = data?.acne;
+  const video = data?.video;
 
   const loadData = useCallback(async () => {
     try { setData(await getDashboard()); setError(""); }
@@ -89,7 +92,7 @@ export function App() {
 
   useEffect(() => {
     if (!getToken()) return;
-    getCurrentUser().then((r) => setUser(r.user)).catch(() => clearToken());
+    getCurrentUser().then(r => setUser(r.user)).catch(() => clearToken());
   }, []);
 
   useEffect(() => { if (user) { loadData(); loadMaterials(); } }, [user, loadData, loadMaterials]);
@@ -105,10 +108,6 @@ export function App() {
   }
 
   if (!user) return <Login onLogin={setUser} />;
-
-  const summary = data?.summary;
-  const acne = data?.acne;
-  const video = data?.video;
 
   return (
     <div className="app-shell">
@@ -142,19 +141,20 @@ export function App() {
           </div>
           <div className="filters">
             <div className="segmented">
-              {(["day", "week", "month"] as DateMode[]).map((m) => (
+              {(["day", "week", "month"] as DateMode[]).map(m => (
                 <button key={m} className={dateMode === m ? "active" : ""} onClick={() => setDateMode(m)}>
                   {{ day: "日", week: "周", month: "月" }[m]}
                 </button>
               ))}
             </div>
-            <input className="date-input" type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} />
+            <input className="date-input" type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)} />
           </div>
         </header>
 
         {notice && <div className="notice ok">{notice}</div>}
         {error && <div className="notice err">{error}</div>}
 
+        {/* ====== Dashboard View ====== */}
         {view === "dashboard" && summary && (
           <div className="view">
             {/* KPI Row 1 */}
@@ -173,32 +173,26 @@ export function App() {
               <KpiCard label="1小时退款金额" value={money(summary.refund_amount_1h)} />
             </div>
 
-            {/* Two-column: Trends + Acne */}
+            {/* Row: Trends + Acne */}
             <div className="grid-2">
               <div className="card glass">
-                <div className="card-head"><h3>📈 消耗 & 成交趋势</h3><span>日维度</span></div>
+                <div className="card-head">
+                  <h3>📈 消耗 & 成交趋势</h3>
+                  <span>日维度 · {data?.trends?.length ?? 0} 天</span>
+                </div>
                 <div className="card-body">
-                  <div className="chart-placeholder">
-                    <TrendingUp size={32} />
-                    <span>Chart.js 双轴折线图</span>
-                    <small>{data?.trends?.length ?? 0} 天数据</small>
-                  </div>
-                  {data?.trends && data.trends.length > 0 && (
-                    <div className="trend-mini">
-                      {data.trends.slice(-7).map((t) => (
-                        <div key={t.date} className="trend-bar" title={`${t.date}: ${money(t.spend)}`}>
-                          <div className="bar" style={{ height: `${Math.max(4, (t.spend / (data.trends.reduce((m, x) => Math.max(m, x.spend), 1))) * 100)}%` }} />
-                          <small>{t.date.slice(5)}</small>
-                        </div>
-                      ))}
-                    </div>
+                  {data?.trends ? <TrendChart trends={data.trends} dateMode={dateMode} /> : (
+                    <div className="chart-placeholder"><span>暂无趋势数据</span></div>
                   )}
                 </div>
               </div>
 
               <div className="card glass">
                 <div className="card-head">
-                  <div><h3>🔬 祛痘类投放专项</h3><span>含"苦参"或"祛痘"的 {acne?.products?.length ?? 0} 个产品</span></div>
+                  <div>
+                    <h3>🔬 祛痘类投放专项</h3>
+                    <span>含"苦参"或"祛痘"的 {acne?.products?.length ?? 0} 个产品</span>
+                  </div>
                   <span>消耗占比 <b>{acne ? (acne.spend_ratio * 100).toFixed(1) : 0}%</b></span>
                 </div>
                 <div className="card-body">
@@ -213,18 +207,24 @@ export function App() {
               </div>
             </div>
 
-            {/* TOP10 + Charts */}
+            {/* Row: TOP10 + Source */}
             <div className="grid-2">
               <div className="card glass">
-                <div className="card-head"><h3>🏆 消耗 TOP10 视频素材</h3><span>视频维度 · {video?.material_count ?? 0} 个素材</span></div>
+                <div className="card-head">
+                  <h3>🏆 消耗 TOP10 视频素材</h3>
+                  <span>视频维度 · {video?.material_count ?? 0} 个素材</span>
+                </div>
                 <div className="card-body">
                   <table className="mini-table">
                     <thead><tr><th>#</th><th>素材</th><th>消耗</th><th>成交</th><th>ROI</th></tr></thead>
                     <tbody>
                       {data?.topMaterials?.map((m, i) => (
-                        <tr key={m.id} onClick={() => { setView("materials"); }}>
-                          <td>{i + 1}</td><td><strong>{m.material_name.slice(0, 40)}{m.material_name.length > 40 ? "..." : ""}</strong></td>
-                          <td>{money(m.spend)}</td><td>{money(m.gross_gmv)}</td><td>{roi(m.gross_roi)}</td>
+                        <tr key={m.id} onClick={() => setView("materials")}>
+                          <td>{i + 1}</td>
+                          <td><strong>{m.material_name.slice(0, 40)}{m.material_name.length > 40 ? "..." : ""}</strong></td>
+                          <td>{money(m.spend)}</td>
+                          <td>{money(m.gross_gmv)}</td>
+                          <td>{roi(m.gross_roi)}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -233,25 +233,52 @@ export function App() {
               </div>
 
               <div className="card glass">
-                <div className="card-head"><h3>📊 来源 & 商品分布</h3><span>饼图 + 柱状图（后续版本）</span></div>
-                <div className="card-body chart-placeholder" style={{ height: 220 }}>
-                  <Database size={32} />
-                  <span>Chart.js 饼图 / 柱状图</span>
-                  <small>Phase 2 实现</small>
+                <div className="card-head">
+                  <h3>📊 素材来源分布</h3>
+                  <span>按来源分类消耗占比</span>
+                </div>
+                <div className="card-body">
+                  {data?.sourceDist?.length ? <PieChart data={data.sourceDist} /> : (
+                    <div className="chart-placeholder"><span>暂无来源数据</span></div>
+                  )}
                 </div>
               </div>
             </div>
 
-            {/* Video Preview Placeholder */}
-            <div className="card glass" style={{ marginTop: 16 }}>
-              <div className="card-head"><h3>🎴 视频素材预览</h3><span>关联共享盘视频 · 同名匹配（后续版本）</span></div>
-              <div className="card-body" style={{ textAlign: "center", padding: 30, color: "var(--text-muted)" }}>
-                <Video size={32} /><p>素材详情页将嵌入 HTML5 播放器</p>
+            {/* Row: Plan Budget + Video Preview */}
+            <div className="grid-2" style={{ marginTop: 16 }}>
+              <div className="card glass">
+                <div className="card-head">
+                  <h3>📋 投放计划消耗</h3>
+                  <span>{data?.planSummary?.length ?? 0} 个计划</span>
+                </div>
+                <div className="card-body">
+                  {data?.planSummary?.length ? (
+                    <BarChart
+                      labels={data.planSummary.slice(0, 11).map(p => p.plan_name.length > 18 ? p.plan_name.slice(0, 18) + "..." : p.plan_name)}
+                      values={data.planSummary.slice(0, 11).map(p => p.spend)}
+                      title="消耗"
+                    />
+                  ) : (
+                    <div className="chart-placeholder"><span>暂无计划数据</span></div>
+                  )}
+                </div>
+              </div>
+
+              <div className="card glass">
+                <div className="card-head">
+                  <h3>🎴 视频素材预览</h3>
+                  <span>关联共享盘视频 · 同名匹配</span>
+                </div>
+                <div className="card-body" style={{ textAlign: "center", padding: 30, color: "var(--text-muted)" }}>
+                  <Video size={32} /><p>素材详情页将嵌入 HTML5 播放器</p>
+                </div>
               </div>
             </div>
           </div>
         )}
 
+        {/* ====== Materials View ====== */}
         {view === "materials" && (
           <div className="view">
             {/* Video summary KPI */}
@@ -269,14 +296,14 @@ export function App() {
                 <div className="card-head">
                   <h3>素材列表</h3>
                   <input className="search-input" placeholder="搜索素材名称..." value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === "Enter") loadMaterials(); }} />
+                    onChange={e => setSearch(e.target.value)}
+                    onKeyDown={e => { if (e.key === "Enter") loadMaterials(); }} />
                 </div>
                 <div className="card-body">
                   <table className="mini-table">
                     <thead><tr><th>素材名称</th><th>消耗</th><th>成交</th><th>ROI</th><th>播放</th><th>完播率</th><th></th></tr></thead>
                     <tbody>
-                      {materials.map((m) => (
+                      {materials.map(m => (
                         <tr key={m.id}>
                           <td><strong>{m.material_name.slice(0, 50)}{m.material_name.length > 50 ? "..." : ""}</strong></td>
                           <td>{money(m.spend)}</td><td>{money(m.gross_gmv)}</td><td>{roi(m.gross_roi)}</td>
@@ -310,9 +337,9 @@ export function App() {
                     </div>
                     {detail.trends.length > 0 && (
                       <div className="trend-mini" style={{ marginTop: 12 }}>
-                        {detail.trends.slice(-14).map((t) => (
+                        {detail.trends.slice(-14).map(t => (
                           <div key={t.metric_date} className="trend-bar" title={`${t.metric_date}: ${money(t.spend)}`}>
-                            <div className="bar" style={{ height: `${Math.max(4, (t.spend / Math.max(...detail.trends.map((x) => x.spend), 1)) * 100)}%` }} />
+                            <div className="bar" style={{ height: `${Math.max(4, (t.spend / Math.max(...detail.trends.map(x => x.spend), 1)) * 100)}%` }} />
                             <small>{t.metric_date.slice(5)}</small>
                           </div>
                         ))}
@@ -332,7 +359,10 @@ export function App() {
 
             {/* Video Preview Placeholder */}
             <div className="card glass" style={{ marginTop: 16 }}>
-              <div className="card-head"><h3>🎴 视频预览</h3><span>关联 Z:\...\3剪辑成片\抖音信息流\ · 同名匹配（后续版本实现）</span></div>
+              <div className="card-head">
+                <h3>🎴 视频预览</h3>
+                <span>关联 Z:\...\3剪辑成片\抖音信息流\ · 同名匹配（后续版本）</span>
+              </div>
               <div className="card-body chart-placeholder" style={{ padding: 30 }}>
                 <Video size={32} /><span>选中素材后，匹配共享盘同名视频文件进行播放</span>
               </div>
