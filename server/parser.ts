@@ -66,9 +66,22 @@ function readXlsxRowsSync(filePath: string): string[][] {
 
 function getField(row: Record<string, string>, candidates: string[]): string {
   const keys = Object.keys(row);
+  // IMPORTANT: prefer EXACT or shortest match to avoid 净成交金额→净成交金额结算率 trap
   for (const candidate of candidates) {
-    const found = keys.find((k) => k.includes(candidate));
-    if (found) return cleanCell(row[found]);
+    // First pass: exact match
+    const exact = keys.find((k) => k === candidate);
+    if (exact) return cleanCell(row[exact]);
+  }
+  for (const candidate of candidates) {
+    // Second pass: shortest partial match (shorter header = more likely correct)
+    let best = "";
+    let bestLen = 999;
+    for (const k of keys) {
+      if (k.includes(candidate) && k.length < bestLen) {
+        best = k; bestLen = k.length;
+      }
+    }
+    if (best) return cleanCell(row[best]);
   }
   return "";
 }
