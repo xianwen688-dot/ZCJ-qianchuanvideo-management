@@ -44,43 +44,28 @@ function lark(args: string[], input?: string): { ok: boolean; output: string; er
 
 // ====== Create feishu doc from markdown ======
 export function createFeishuDoc(title: string, content: string): { ok: boolean; url?: string; error?: string } {
-  const config = getConfig();
-
-  // Write to temp file (lark-cli reads content from stdin or file)
-  const tmpDir = path.resolve(process.cwd(), "reports", ".tmp");
+  // Wrap title in XML tag per v2 API; use relative path (lark-cli requires it)
+  const docContent = `<title>${title}</title>\n\n${content}`;
+  const tmpDir = "reports/.tmp";
   fs.mkdirSync(tmpDir, { recursive: true });
-  const tmpFile = path.join(tmpDir, `report_${Date.now()}.md`);
-  fs.writeFileSync(tmpFile, content, "utf-8");
+  const relFile = `${tmpDir}/report_${Date.now()}.md`;
+  fs.writeFileSync(relFile, docContent, "utf-8");
 
   try {
     const result = lark(
-      [
-        "docs",
-        "+create",
-        `--title=${JSON.stringify(title)}`,
-        "--doc-format=markdown",
-        `--as=${config.profile}`,
-        `--content=@${tmpFile}`,
-      ],
+      ["docs", "+create", "--doc-format=markdown", "--as=bot", `--content=@./${relFile}`]
     );
-
-    // Cleanup temp file
-    try { fs.unlinkSync(tmpFile); } catch { /* ignore */ }
+    try { fs.unlinkSync(relFile); } catch { /* */ }
 
     if (!result.ok) {
-      // Fallback: keep local file and report error
-      fallbackLocally(title, content, result.error);
       return { ok: false, error: result.error };
     }
-
-    // Extract doc URL from lark-cli output
     const urlMatch = result.output.match(/https?:\/\/[^\s]+/);
     const url = urlMatch ? urlMatch[0] : result.output;
     return { ok: true, url };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    fallbackLocally(title, content, msg);
-    try { fs.unlinkSync(tmpFile); } catch { /* ignore */ }
+    try { fs.unlinkSync(relFile); } catch { /* */ }
     return { ok: false, error: msg };
   }
 }
@@ -98,7 +83,7 @@ export function sendFeishuMessage(text: string): { ok: boolean; error?: string }
     "+messages-send",
     `--chat-id=${config.chatId}`,
     `--text=${JSON.stringify(text)}`,
-    `--as=${config.profile}`,
+    `--as=bot`,
   ]);
 
   if (!result.ok) {
@@ -107,30 +92,43 @@ export function sendFeishuMessage(text: string): { ok: boolean; error?: string }
   return result;
 }
 
-// ====== Push report: doc + IM notification ======
+// ====== Push report: try doc first, fallback to IM text ======
 export async function pushReport(title: string, content: string, reportType: string) {
   const config = getConfig();
 
   if (config.chatId === "PLACEHOLDER") {
-    // No feishu config yet → save locally only
-    console.log("[feishu] 飞书未配置，仅保存本地报告");
+    console.log("[feishu] 群聊ID未配置，仅保存本地");
     const localPath = path.resolve(process.cwd(), "reports", "local", `${reportType}_${Date.now()}.md`);
     fs.mkdirSync(path.dirname(localPath), { recursive: true });
     fs.writeFileSync(localPath, content, "utf-8");
     return { ok: true, local: true, localPath, url: undefined };
   }
 
+  // Try doc creation first
   const docResult = createFeishuDoc(title, content);
 
   if (docResult.ok && docResult.url) {
-    // Notify IM
     const emoji = reportType === "daily" ? "📊" : reportType === "weekly" ? "📈" : "📋";
-    const msg = `${emoji} ${title}\n${docResult.url}`;
-    const msgResult = sendFeishuMessage(msg);
+    const msgResult = sendFeishuMessage(`${emoji} ${title}\n📄 ${docResult.url}`);
     return { ok: true, url: docResult.url, imSent: msgResult.ok };
   }
 
-  return { ok: false, error: docResult.error };
+  // Doc failed (e.g. no docx scope) → send full report as IM text directly
+  console.log("[feishu] 文档创建失败，降级为IM直接推送:", docResult.error?.slice(0, 80));
+  const emoji = reportType === "daily" ? "📊" : reportType === "weekly" ? "📈" : "📋";
+  // Truncate content if too long (IM limit ~30KB)
+  const maxLen = 25000;
+  const text = content.length > maxLen
+    ? content.slice(0, maxLen) + `\n\n... (内容过长已截断，完整报告保存在本地)`
+    : content;
+  const imResult = sendFeishuMessage(`${emoji} ${title}\n\n${text}`);
+  if (imResult.ok) {
+    return { ok: true, imOnly: true };
+  }
+
+  // Both doc and IM failed → save local
+  fallbackLocally(title, content, docResult.error || imResult.error || "未知错误");
+  return { ok: false, error: docResult.error || imResult.error };
 }
 
 // ====== Local fallback ======
