@@ -67,7 +67,7 @@ export function App() {
   const [materialPage, setMaterialPage] = useState(1);
   const [videoPaths, setVideoPaths] = useState<string[]>([]);
   const [detail, setDetail] = useState<{ material: MaterialMetric; trends: MaterialMetric[] } | null>(null);
-  const [dateMode, setDateMode] = useState<DateMode>("day");
+  const [dateMode, setDateMode] = useState<DateMode>("all");
   const [selectedDate, setSelectedDate] = useState(today());
   const [fromDate, setFromDate] = useState(today());
   const [toDate, setToDate] = useState(today());
@@ -78,8 +78,8 @@ export function App() {
   const [reportLogs, setReportLogs] = useState<any[]>([]);
 
   const isAdmin = user?.role === "admin";
-  const range = dateMode === "custom"
-    ? { from: fromDate, to: toDate }
+  const range = dateMode === "all" ? null
+    : dateMode === "custom" ? { from: fromDate, to: toDate }
     : getDateRange(selectedDate, dateMode);
   const summary = data?.summary;
   const acne = data?.acne;
@@ -87,12 +87,18 @@ export function App() {
 
   const loadData = useCallback(async () => {
     try {
-      const df = dateMode === "custom" ? fromDate : undefined;
-      const dt = dateMode === "custom" ? toDate : undefined;
-      setData(await getDashboard(df, dt));
+      // "全部"不传日期参数(返回全量)；其余模式传日期范围
+      if (dateMode === "all") {
+        setData(await getDashboard());
+      } else {
+        const r = dateMode === "custom"
+          ? { from: fromDate, to: toDate }
+          : getDateRange(selectedDate, dateMode);
+        setData(await getDashboard(r.from, r.to));
+      }
       setError("");
     } catch (ex) { setError(ex instanceof Error ? ex.message : "加载失败"); }
-  }, [dateMode, fromDate, toDate]);
+  }, [dateMode, fromDate, toDate, selectedDate]);
 
   const pageSize = 15;
   const totalPages = Math.max(1, Math.ceil(materialTotal / pageSize));
@@ -183,13 +189,13 @@ export function App() {
           </div>
           <div className="filters">
             <div className="segmented">
-              {(["day", "week", "month", "custom"] as DateMode[]).map(m => (
+              {(["all", "day", "week", "month", "custom"] as DateMode[]).map(m => (
                 <button key={m} className={dateMode === m ? "active" : ""} onClick={() => setDateMode(m)}>
-                  {{ day: "日", week: "周", month: "月", custom: "自定义" }[m]}
+                  {{ all: "全部", day: "日", week: "周", month: "月", custom: "自定义" }[m]}
                 </button>
               ))}
             </div>
-            {dateMode === "custom" ? (
+            {dateMode === "all" ? null : dateMode === "custom" ? (
               <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                 <input className="date-input" type="date" value={fromDate} onChange={e => setFromDate(e.target.value)} />
                 <span style={{ color: "var(--text-muted)", fontSize: 13, fontWeight: 700 }}>至</span>
