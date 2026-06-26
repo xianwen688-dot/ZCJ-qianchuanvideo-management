@@ -23,5 +23,8 @@ echo   本地访问: http://localhost:8788
 echo   局域网:   http://%COMPUTERNAME%:8788
 echo.
 
+REM 加载.env环境变量
+if exist .env for /f "tokens=1,2 delims==" %%a in (.env) do set %%a=%%b
+
 call npx tsx server/index.ts
 pause
