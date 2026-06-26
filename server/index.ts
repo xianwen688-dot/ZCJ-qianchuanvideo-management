@@ -216,13 +216,7 @@ app.post("/api/reports/:type/push", requireAdmin, async (req, res) => {
     : `千川视频投放月报 - ${report.date}`;
 
   const pushResult = await pushReport(title, report.content, report.type);
-
-  // Update report log with feishu URL
-  if (pushResult.url) {
-    db.prepare("UPDATE report_log SET feishu_url = ? WHERE id = ?").run(pushResult.url, saved.id);
-  }
-
-  res.json({ ...saved, pushed: pushResult.ok, feishuUrl: pushResult.url ?? null });
+  res.json({ ...saved, pushed: pushResult.ok });
 });
 
 // ====== Feishu Config API ======
@@ -283,10 +277,7 @@ cron.schedule("30 9 * * *", async () => {
     const report = generateDailyReport();
     const saved = saveReport("daily", report.content, report.date, report.date);
     const result = await pushReport(`千川视频投放日报 - ${report.date}`, report.content, "daily");
-    if (result.ok) {
-      db.prepare("UPDATE report_log SET feishu_url = ? WHERE id = ?").run(result.url ?? null, saved.id);
-    }
-    console.log(`[cron] 日报完成: ${saved.path}${result.url ? ` → ${result.url}` : ""}`);
+    console.log(`[cron] 日报: ${result.ok ? "已推送" : "失败"}`);
   } catch (err) {
     console.error("[cron] 日报生成失败:", err);
   }
@@ -299,10 +290,7 @@ cron.schedule("30 9 * * 1", async () => {
     const report = generateWeeklyReport();
     const saved = saveReport("weekly", report.content, report.date, report.date);
     const result = await pushReport(`千川视频投放周报 - ${report.date}`, report.content, "weekly");
-    if (result.ok) {
-      db.prepare("UPDATE report_log SET feishu_url = ? WHERE id = ?").run(result.url ?? null, saved.id);
-    }
-    console.log(`[cron] 周报完成: ${saved.path}`);
+    console.log(`[cron] 周报: ${result.ok ? "已推送" : "失败"}`);
   } catch (err) {
     console.error("[cron] 周报生成失败:", err);
   }
@@ -315,10 +303,7 @@ cron.schedule("30 9 1 * *", async () => {
     const report = generateMonthlyReport();
     const saved = saveReport("monthly", report.content, report.date, report.date);
     const result = await pushReport(`千川视频投放月报 - ${report.date}`, report.content, "monthly");
-    if (result.ok) {
-      db.prepare("UPDATE report_log SET feishu_url = ? WHERE id = ?").run(result.url ?? null, saved.id);
-    }
-    console.log(`[cron] 月报完成: ${saved.path}`);
+    console.log(`[cron] 月报: ${result.ok ? "已推送" : "失败"}`);
   } catch (err) {
     console.error("[cron] 月报生成失败:", err);
   }
