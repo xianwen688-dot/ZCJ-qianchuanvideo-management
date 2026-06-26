@@ -21,10 +21,11 @@ export function getDashboard(from?: string, to?: string) {
 }
 
 // ====== Materials ======
-export function getMaterials(params: { search?: string; sortBy?: string; limit?: number; offset?: number }) {
+export function getMaterials(params: { search?: string; sortBy?: string; sortDir?: string; limit?: number; offset?: number }) {
   const q = new URLSearchParams();
   if (params.search) q.set("search", params.search);
   if (params.sortBy) q.set("sortBy", params.sortBy);
+  if (params.sortDir) q.set("sortDir", params.sortDir);
   if (params.limit) q.set("limit", String(params.limit));
   if (params.offset) q.set("offset", String(params.offset));
   return apiFetch<PagedResponse<MaterialMetric>>(`/api/materials?${q.toString()}`);

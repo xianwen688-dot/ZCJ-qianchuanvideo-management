@@ -43,8 +43,8 @@ function SortTh({ col, label, currentSort, currentDir, onClick }: {
 }) {
   const active = currentSort === col;
   return (
-    <th className="sort-header" onClick={() => onClick(col)} style={{ cursor: "pointer", userSelect: "none" }}>
-      {label} <span style={{ fontSize: 10, marginLeft: 2 }}>{active ? (currentDir === "desc" ? "▼" : "▲") : "⇅"}</span>
+    <th className="sort-header" onClick={() => onClick(col)}>
+      {label}{active ? <span className="sort-arrow">{currentDir === "desc" ? "▼" : "▲"}</span> : null}
     </th>
   );
 }
@@ -125,7 +125,7 @@ export function App() {
 
   const loadMaterials = useCallback(async () => {
     try {
-      const r = await getMaterials({ search: search || undefined, sortBy: matSort, limit: pageSize, offset: (materialPage - 1) * pageSize });
+      const r = await getMaterials({ search: search || undefined, sortBy: matSort, sortDir: matSortDir, limit: pageSize, offset: (materialPage - 1) * pageSize });
       setMaterials(r.items); setMaterialTotal(r.total);
     } catch { /* ignore */ }
   }, [search, materialPage, matSort, matSortDir]);

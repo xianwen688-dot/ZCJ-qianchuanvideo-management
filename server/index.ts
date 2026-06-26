@@ -132,6 +132,7 @@ app.get("/api/materials", optionalAuth, (req, res) => {
   const sortBy = ["spend", "gross_roi", "gross_orders", "plays", "net_gmv", "completion_rate", "click_rate"].includes(String(req.query.sortBy ?? ""))
     ? String(req.query.sortBy)
     : "spend";
+  const sortDir = req.query.sortDir === "asc" ? "ASC" : "DESC";
   const limit = Math.min(Math.max(Number(req.query.limit ?? 20), 1), 100);
   const offset = Math.max(Number(req.query.offset ?? 0), 0);
 
@@ -141,7 +142,7 @@ app.get("/api/materials", optionalAuth, (req, res) => {
 
   const total = (db.prepare(`SELECT COUNT(*) AS c FROM material_metrics ${where}`).get(...params) as { c: number }).c;
   const items = db.prepare(
-    `SELECT * FROM material_metrics ${where} ORDER BY ${sortBy} DESC LIMIT ? OFFSET ?`
+    `SELECT * FROM material_metrics ${where} ORDER BY ${sortBy} ${sortDir} LIMIT ? OFFSET ?`
   ).all(...params, limit, offset);
 
   res.json({ items, total, limit, offset });

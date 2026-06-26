@@ -232,15 +232,16 @@ body::after {
   text-align: left; padding: 10px 8px; color: var(--text-muted);
   font-weight: 700; font-size: 11px; text-transform: uppercase;
   border-bottom: 1px solid rgba(0,0,0,0.06);
+  height: 44px; line-height: 16px; vertical-align: middle;
 }
 .mini-table td {
   padding: 12px 8px; border-bottom: 1px solid rgba(0,0,0,0.04); font-weight: 600;
 }
 .mini-table tr:hover td { background: rgba(255,255,255,0.25); cursor: pointer; }
 .mini-table td strong { display: block; max-width: 400px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sort-header { cursor: pointer; user-select: none; }
+.sort-header { cursor: pointer; user-select: none; white-space: nowrap; }
 .sort-header:hover { color: var(--brand); }
-.sort-header span { font-size: 10px; margin-left: 2px; }
+.sort-arrow { margin-left: 4px; font-size: 9px; color: var(--brand); }
 
 /* ====== Detail Panel ====== */
 .detail-panel { position: sticky; top: 100px; max-height: calc(100vh - 140px); overflow: auto; }
