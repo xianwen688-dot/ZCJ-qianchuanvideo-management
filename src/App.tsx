@@ -122,6 +122,13 @@ export function App() {
 
   useEffect(() => { if (user) { loadData(); loadMaterials(); } }, [user, loadData, loadMaterials]);
 
+  // 每30分钟自动刷新数据
+  useEffect(() => {
+    if (!user) return;
+    const t = setInterval(() => { loadData(); loadMaterials(); }, 30 * 60 * 1000);
+    return () => clearInterval(t);
+  }, [user, loadData, loadMaterials]);
+
   async function doSync() {
     setBusy("sync"); setNotice(""); setError("");
     try {

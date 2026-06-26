@@ -1,14 +1,14 @@
 import fs from "node:fs";
 import path from "node:path";
 import { watch, type FSWatcher } from "chokidar";
+import cron from "node-cron";
 import { DATA_PATHS } from "./config";
 import { detectFileType } from "./parser";
 import { importReportFile } from "./importer";
 
-const SCAN_INTERVAL_MS = 30 * 60 * 1000; // 30分钟全量扫描兜底
 const WATCH_EXTENSIONS = new Set([".csv"]);
 let watcher: FSWatcher | null = null;
-let scanTimer: ReturnType<typeof setInterval> | null = null;
+let scanTask: cron.ScheduledTask | null = null;
 
 export type WatchEvent = {
   type: "added" | "changed";
@@ -58,12 +58,13 @@ async function scanAll(onImport: WatchCallback, onError: (msg: string) => void) 
 export function startWatching(onImport: WatchCallback, onError: (msg: string) => void) {
   if (watcher) return;
 
-  // 启动30分钟定时全量扫描 (兜底机制)
-  scanTimer = setInterval(() => {
+  // 每半小时整点扫描 (0分和30分) — 兜底机制
+  scanTask = cron.schedule("0,30 * * * *", () => {
+    console.log("[watcher] 定时扫描 (整点/半点)...");
     scanAll(onImport, onError).catch((err) =>
       onError(`定时扫描异常: ${err instanceof Error ? err.message : String(err)}`)
     );
-  }, SCAN_INTERVAL_MS);
+  });
 
   const watchDirs = DATA_PATHS.filter((dir) => {
     try { return fs.existsSync(dir); } catch { return false; }
@@ -127,10 +128,10 @@ export function startWatching(onImport: WatchCallback, onError: (msg: string) =>
     }
   }
 
-  console.log(`[watcher] 就绪, ${watchDirs.length}目录 + 定时扫描(${SCAN_INTERVAL_MS / 60000}分钟)`);
+  console.log("[watcher] 就绪, " + watchDirs.length + "目录 + 定时扫描(每半小时整点)");
 }
 
 export function stopWatching() {
   if (watcher) { watcher.close(); watcher = null; }
-  if (scanTimer) { clearInterval(scanTimer); scanTimer = null; }
+  if (scanTask) { scanTask.stop(); scanTask = null; }
 }

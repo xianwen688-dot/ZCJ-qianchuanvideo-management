@@ -336,6 +336,7 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(`  Local:  http://localhost:${PORT}`);
   console.log(`  LAN:    http://${hostname}:${PORT}`);
   console.log(`  定时任务: 日报(每日9:30) 周报(周一9:30) 月报(每月1日9:30)`);
+  console.log("  数据刷新: 文件变更实时监控 + 每半小时整点全量扫描(9:00/9:30/10:00...)");
 
   // 启动文件监控
   startWatching(
