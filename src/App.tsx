@@ -44,17 +44,25 @@ function Login({ onLogin }: { onLogin: (u: User) => void }) {
   );
 }
 
+const labelColor = { color: "#c7821a" }; // 暖橙色，低饱和度
+
 // ====== KPI Card ======
-function KpiCard({ label, value, sub, accent, highlight }: {
-  label: string; value: string; sub?: string; accent?: boolean; highlight?: boolean;
+function KpiCard({ label, value, sub, accent, highlight, valueColor }: {
+  label: string; value: string; sub?: string; accent?: boolean; highlight?: boolean; valueColor?: string;
 }) {
   return (
     <div className={`kpi-card glass ${highlight ? "highlight" : ""}`}>
       <span className="kpi-label">{label}</span>
-      <strong className={accent ? "kpi-accent" : ""}>{value}</strong>
+      <strong className={accent && !valueColor ? "kpi-accent" : ""} style={valueColor ? { color: valueColor } : {}}>{value}</strong>
       {sub && <small>{sub}</small>}
     </div>
   );
+}
+
+// Sort indicator
+function SortArrow({ col, current }: { col: string; current: string | null }) {
+  if (current !== col) return null;
+  return <span style={{ fontSize: 11, marginLeft: 4 }}>▼</span>;
 }
 
 // ====== App ======
@@ -65,6 +73,8 @@ export function App() {
   const [materials, setMaterials] = useState<MaterialMetric[]>([]);
   const [materialTotal, setMaterialTotal] = useState(0);
   const [materialPage, setMaterialPage] = useState(1);
+  const [matSort, setMatSort] = useState<string>("spend");
+  const [matSortDir, setMatSortDir] = useState<"desc"|"asc">("desc");
   const [videoPaths, setVideoPaths] = useState<string[]>([]);
   const [detail, setDetail] = useState<{ material: MaterialMetric; trends: MaterialMetric[] } | null>(null);
   const [dateMode, setDateMode] = useState<DateMode>("all");
@@ -80,39 +90,42 @@ export function App() {
   const isAdmin = user?.role === "admin";
   const range = dateMode === "all" ? null
     : dateMode === "custom" ? { from: fromDate, to: toDate }
-    : getDateRange(selectedDate, dateMode);
+    : getDateRange(selectedDate, dateMode as "day" | "week" | "month");
   const summary = data?.summary;
   const acne = data?.acne;
   const video = data?.video;
+  const pageSize = 15;
+  const totalPages = Math.max(1, Math.ceil(materialTotal / pageSize));
 
   const loadData = useCallback(async () => {
     try {
-      // "全部"不传日期参数(返回全量)；其余模式传日期范围
       if (dateMode === "all") {
         setData(await getDashboard());
       } else {
         const r = dateMode === "custom"
           ? { from: fromDate, to: toDate }
-          : getDateRange(selectedDate, dateMode);
+          : getDateRange(selectedDate, dateMode as "day" | "week" | "month");
         setData(await getDashboard(r.from, r.to));
       }
       setError("");
     } catch (ex) { setError(ex instanceof Error ? ex.message : "加载失败"); }
   }, [dateMode, fromDate, toDate, selectedDate]);
 
-  const pageSize = 15;
-  const totalPages = Math.max(1, Math.ceil(materialTotal / pageSize));
-
   const loadMaterials = useCallback(async () => {
     try {
-      const r = await getMaterials({ search: search || undefined, limit: pageSize, offset: (materialPage - 1) * pageSize });
+      const r = await getMaterials({ search: search || undefined, sortBy: matSort, limit: pageSize, offset: (materialPage - 1) * pageSize });
       setMaterials(r.items); setMaterialTotal(r.total);
     } catch { /* ignore */ }
-  }, [search, materialPage]);
+  }, [search, materialPage, matSort, matSortDir]);
+
+  function changeSort(col: string) {
+    if (matSort === col) setMatSortDir(d => d === "desc" ? "asc" : "desc");
+    else { setMatSort(col); setMatSortDir("desc"); }
+    setMaterialPage(1);
+  }
 
   async function openDetail(id: number) {
     try { setDetail(await getMaterialDetail(id)); } catch { /* */ }
-    // Look for matching video
     try {
       const mn = materials.find(m => m.id === id)?.material_name || "";
       const q = new URLSearchParams({ name: mn });
@@ -128,7 +141,6 @@ export function App() {
 
   useEffect(() => { if (user) { loadData(); loadMaterials(); } }, [user, loadData, loadMaterials]);
 
-  // 每30分钟自动刷新数据
   useEffect(() => {
     if (!user) return;
     const t = setInterval(() => { loadData(); loadMaterials(); }, 30 * 60 * 1000);
@@ -158,12 +170,8 @@ export function App() {
 
   return (
     <div className="app-shell">
-      {/* ====== Sidebar ====== */}
       <aside className="sidebar">
-        <div className="brand">
-          <div className="logo-icon">🎬</div>
-          <div><strong>中草集</strong><span>抖音投放管理</span></div>
-        </div>
+        <div className="brand"><div className="logo-icon">🎬</div><div><strong>中草集</strong><span>抖音投放管理</span></div></div>
         <nav>
           <button className={`nav-btn ${view === "dashboard" ? "active" : ""}`} onClick={() => setView("dashboard")}><BarChart3 size={18} /> 视频投放数据</button>
           <button className={`nav-btn ${view === "materials" ? "active" : ""}`} onClick={() => setView("materials")}><FileSpreadsheet size={18} /> 视频素材</button>
@@ -180,13 +188,9 @@ export function App() {
         </div>
       </aside>
 
-      {/* ====== Main ====== */}
       <main className="content">
         <header className="topbar glass">
-          <div>
-            <h2>{viewTitle()}</h2>
-            <span>{rangeLabel(range)}</span>
-          </div>
+          <h2 style={{ fontSize: 32, fontWeight: 900 }}>{viewTitle()}</h2>
           <div className="filters">
             <div className="segmented">
               {(["all", "day", "week", "month", "custom"] as DateMode[]).map(m => (
@@ -216,7 +220,7 @@ export function App() {
             <div className="kpi-grid">
               <KpiCard label="整体消耗" value={money(summary.spend)} accent sub="11个计划合计" />
               <KpiCard label="整体成交金额" value={money(summary.gross_gmv)} sub="商品维度累计" />
-              <KpiCard label="净成交金额" value={money(summary.net_gmv)} />
+              <KpiCard label="净成交金额" value={money(summary.net_gmv)} valueColor="#c7821a" />
               <KpiCard label="⭐ 减15%退货率净ROI" value={roi(summary.conservative_roi)} accent highlight sub="保守预估·扣15%退货损耗" />
             </div>
             <div className="kpi-grid">
@@ -229,7 +233,7 @@ export function App() {
             <div className="grid-2">
               <div className="card glass">
                 <div className="card-head"><h3>📈 消耗 & 成交趋势</h3><span>日维度 · {data?.trends?.length ?? 0} 天</span></div>
-                <div className="card-body">{data?.trends ? <TrendChart trends={data.trends} dateMode={dateMode} /> : <div className="chart-placeholder"><span>暂无趋势数据</span></div>}</div>
+                <div className="card-body">{data?.trends?.length ? <TrendChart trends={data.trends} dateMode={dateMode === "all" ? "day" : dateMode as "day" | "week" | "month" | "custom"} /> : <div className="chart-placeholder"><span>暂无趋势数据</span></div>}</div>
               </div>
               <div className="card glass">
                 <div className="card-head">
@@ -253,12 +257,11 @@ export function App() {
                 <div className="card-head"><h3>🏆 消耗 TOP10 视频素材</h3><span>视频维度 · {video?.material_count ?? 0} 个素材</span></div>
                 <div className="card-body">
                   <table className="mini-table">
-                    <thead><tr><th>#</th><th>素材</th><th>消耗</th><th>成交</th><th>ROI</th></tr></thead>
+                    <thead><tr><th>#</th><th>素材</th><th>整体消耗</th><th>整体成交</th><th>整体支付ROI</th></tr></thead>
                     <tbody>
                       {data?.topMaterials?.map((m, i) => (
                         <tr key={i} onClick={() => setView("materials")}>
-                          <td>{i + 1}</td>
-                          <td><strong>{m.material_name.slice(0, 40)}{m.material_name.length > 40 ? "..." : ""}</strong></td>
+                          <td>{i + 1}</td><td><strong>{String(m.material_name).slice(0, 40)}</strong></td>
                           <td>{money(m.spend)}</td><td>{money(m.gross_gmv)}</td><td>{roi(m.gross_roi)}</td>
                         </tr>
                       ))}
@@ -267,15 +270,10 @@ export function App() {
                 </div>
               </div>
               <div className="card glass">
-                <div className="card-head"><h3>📊 素材来源分布</h3><span>按来源分类消耗占比</span></div>
-                <div className="card-body">{data?.sourceDist?.length ? <PieChart data={data.sourceDist} /> : <div className="chart-placeholder"><span>暂无来源数据</span></div>}</div>
-              </div>
-            </div>
-
-            <div style={{ marginTop: 16 }}>
-              <div className="card glass">
-                <div className="card-head"><h3>🎴 视频素材预览</h3><span>关联 Z:\...\3剪辑成片\抖音信息流\ · 同名匹配（后续版本）</span></div>
-                <div className="card-body" style={{ textAlign: "center", padding: 30, color: "var(--text-muted)" }}><Video size={32} /><p>素材详情页将嵌入 HTML5 播放器</p></div>
+                <div className="card-head"><h3>📊 素材来源分布</h3><span>按来源分类 · 消耗 + 净成交</span></div>
+                <div className="card-body">
+                  {data?.sourceDist?.length ? <PieChart data={data.sourceDist} /> : <div className="chart-placeholder"><span>暂无来源数据</span></div>}
+                </div>
               </div>
             </div>
           </div>
@@ -287,9 +285,17 @@ export function App() {
             {video && (
               <div className="kpi-grid">
                 <KpiCard label="视频整体消耗" value={money(video.spend)} accent />
-                <KpiCard label="视频整体成交" value={money(video.gross_gmv)} />
-                <KpiCard label="视频支付ROI" value={roi(video.gross_roi)} />
+                <KpiCard label="视频整体成交金额" value={money(video.gross_gmv)} />
+                <KpiCard label="视频整体支付ROI" value={roi(video.gross_roi)} />
+                <KpiCard label="视频净成交ROI" value={roi(video.net_roi)} />
+              </div>
+            )}
+            {video && (
+              <div className="kpi-grid">
+                <KpiCard label="视频净成交金额" value={money(video.net_gmv)} valueColor="#c7821a" />
+                <KpiCard label="视频净成交订单数" value={numberText(video.net_orders)} />
                 <KpiCard label="视频播放数" value={numberText(video.plays)} sub={`${video.material_count} 个素材`} />
+                <KpiCard label="视频整体点击率" value={percent(video.avg_click_rate)} />
               </div>
             )}
             <div className="grid-2">
@@ -305,19 +311,29 @@ export function App() {
                 </div>
                 <div className="card-body">
                   <table className="mini-table">
-                    <thead><tr><th>素材名称</th><th>消耗</th><th>成交</th><th>ROI</th><th>播放</th><th>完播率</th><th></th></tr></thead>
+                    <thead><tr>
+                      <th>素材名称</th>
+                      <th className="sort-header" onClick={() => changeSort("spend")}>整体消耗 {matSort === "spend" ? (matSortDir === "desc" ? "▼" : "▲") : ""}</th>
+                      <th className="sort-header" onClick={() => changeSort("gross_roi")}>整体支付ROI {matSort === "gross_roi" ? (matSortDir === "desc" ? "▼" : "▲") : ""}</th>
+                      <th className="sort-header" onClick={() => changeSort("gross_orders")}>整体成交订单 {matSort === "gross_orders" ? (matSortDir === "desc" ? "▼" : "▲") : ""}</th>
+                      <th className="sort-header" onClick={() => changeSort("plays")}>播放数 {matSort === "plays" ? (matSortDir === "desc" ? "▼" : "▲") : ""}</th>
+                      <th>完播率</th>
+                      <th></th>
+                    </tr></thead>
                     <tbody>
                       {materials.map(m => (
                         <tr key={m.id}>
-                          <td><strong>{m.material_name.slice(0, 50)}{m.material_name.length > 50 ? "..." : ""}</strong></td>
-                          <td>{money(m.spend)}</td><td>{money(m.gross_gmv)}</td><td>{roi(m.gross_roi)}</td>
-                          <td>{numberText(m.plays)}</td><td>{percent(m.completion_rate)}</td>
+                          <td><strong>{String(m.material_name).slice(0, 50)}</strong></td>
+                          <td>{money(m.spend)}</td>
+                          <td>{roi(m.gross_roi)}</td>
+                          <td>{numberText(m.gross_orders)}</td>
+                          <td>{numberText(m.plays)}</td>
+                          <td>{percent(m.completion_rate)}</td>
                           <td><button className="btn-text" onClick={() => openDetail(m.id)}>详情</button></td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
-                  {/* Pagination */}
                   {totalPages > 1 && (
                     <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 8, marginTop: 14 }}>
                       <button className="btn-ghost" disabled={materialPage <= 1} onClick={() => setMaterialPage(p => Math.max(1, p - 1))} style={{ minWidth: 80 }}>← 上一页</button>
@@ -329,47 +345,53 @@ export function App() {
               </div>
               {detail && (
                 <div className="card glass detail-panel">
-                  <div className="card-head"><h3>{detail.material.material_name.slice(0, 40)}</h3><button className="btn-icon" onClick={() => { setDetail(null); setVideoPaths([]); }}>✕</button></div>
+                  <div className="card-head"><h3>{String(detail.material.material_name).slice(0, 40)}</h3><button className="btn-icon" onClick={() => { setDetail(null); setVideoPaths([]); }}>✕</button></div>
                   <div className="card-body">
                     <div className="mini-metrics">
-                      <div className="metric-card"><span>消耗</span><strong>{money(detail.material.spend)}</strong></div>
-                      <div className="metric-card"><span>成交</span><strong>{money(detail.material.gross_gmv)}</strong></div>
-                      <div className="metric-card"><span>ROI</span><strong>{roi(detail.material.gross_roi)}</strong></div>
-                      <div className="metric-card"><span>播放</span><strong>{numberText(detail.material.plays)}</strong></div>
-                      <div className="metric-card"><span>3s播放率</span><strong>{percent(detail.material.rate_3s)}</strong></div>
-                      <div className="metric-card"><span>完播率</span><strong>{percent(detail.material.completion_rate)}</strong></div>
+                      <div className="metric-card"><span>整体消耗</span><strong>{money(detail.material.spend)}</strong></div>
+                      <div className="metric-card"><span>整体支付ROI</span><strong>{roi(detail.material.gross_roi)}</strong></div>
+                      <div className="metric-card"><span>整体成交金额</span><strong>{money(detail.material.gross_gmv)}</strong></div>
+                      <div className="metric-card"><span>净成交ROI</span><strong>{roi(detail.material.net_roi)}</strong></div>
+                      <div className="metric-card"><span>净成交金额</span><strong style={labelColor}>{money(detail.material.net_gmv)}</strong></div>
+                      <div className="metric-card"><span>净成交订单数</span><strong>{numberText(detail.material.net_orders)}</strong></div>
+                      <div className="metric-card"><span>千次展现费用</span><strong>{money(detail.material.cpm)}</strong></div>
+                      <div className="metric-card"><span>整体点击率</span><strong>{percent(detail.material.click_rate)}</strong></div>
+                      <div className="metric-card"><span>整体转化率</span><strong>{percent(detail.material.conversion_rate)}</strong></div>
+                      <div className="metric-card"><span>3秒播放率</span><strong>{percent(detail.material.rate_3s)}</strong></div>
+                      <div className="metric-card"><span>视频完播率</span><strong>{percent(detail.material.completion_rate)}</strong></div>
+                      <div className="metric-card"><span>播放数</span><strong>{numberText(detail.material.plays)}</strong></div>
                     </div>
+                    {/* Trend bars with label */}
                     {detail.trends.length > 0 && (
-                      <div className="trend-mini" style={{ marginTop: 12 }}>
-                        {detail.trends.slice(-14).map(t => (
-                          <div key={t.metric_date} className="trend-bar" title={`${t.metric_date}: ${money(t.spend)}`}>
-                            <div className="bar" style={{ height: `${Math.max(4, (t.spend / Math.max(...detail.trends.map(x => x.spend), 1)) * 100)}%` }} />
-                            <small>{t.metric_date.slice(5)}</small>
-                          </div>
-                        ))}
+                      <div style={{ marginTop: 14 }}>
+                        <h4 style={{ fontSize: 13, marginBottom: 8, color: "var(--text-secondary)" }}>每日消耗趋势 ↓</h4>
+                        <div className="trend-mini">
+                          {detail.trends.slice(-14).map(t => (
+                            <div key={t.metric_date} className="trend-bar" title={`${t.metric_date}: ${money(t.spend)}`}>
+                              <div className="bar" style={{ height: `${Math.max(4, (t.spend / Math.max(...detail.trends.map(x => x.spend), 1)) * 100)}%` }} />
+                              <small>{t.metric_date.slice(5)}</small>
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     )}
-                    {/* Video Preview */}
-                    <div className="card glass" style={{ marginTop: 12, padding: 14 }}>
-                      <div className="card-head"><h3>🎴 视频预览</h3><span>{videoPaths.length > 0 ? `找到 ${videoPaths.length} 个匹配` : "搜索中..."}</span></div>
-                      <div style={{ marginTop: 8 }}>
-                        {videoPaths.length > 0 ? (
-                          videoPaths.map((vp, i) => (
-                            <div key={i} style={{ marginBottom: 8 }}>
-                              <small style={{ color: "var(--text-muted)", display: "block", marginBottom: 4 }}>{vp.replace(/^.*[\\/]/, "")}</small>
-                              <video controls style={{ width: "100%", maxHeight: 260, borderRadius: 8, background: "#000" }}
-                                src={`/api/video/stream?path=${encodeURIComponent(vp)}`} preload="metadata">
-                                浏览器不支持视频播放
-                              </video>
-                            </div>
-                          ))
-                        ) : (
-                          <div style={{ textAlign: "center", padding: 16, color: "var(--text-muted)" }}>
-                            <Video size={24} />
-                            <p style={{ marginTop: 8, fontSize: 12 }}>{detail ? "搜索共享盘同名视频中..." : "选中素材后自动匹配"}</p>
+                    {/* Video Preview - taller for vertical videos */}
+                    <div style={{ marginTop: 14 }}>
+                      <h4 style={{ fontSize: 13, marginBottom: 6, color: "var(--text-secondary)" }}>🎴 视频预览 {videoPaths.length > 0 ? `(${videoPaths.length}个匹配)` : ""}</h4>
+                      {videoPaths.length > 0 ? (
+                        videoPaths.map((vp, i) => (
+                          <div key={i} style={{ marginBottom: 8 }}>
+                            <small style={{ color: "var(--text-muted)", display: "block", marginBottom: 4 }}>{vp.replace(/^.*[\\/]/, "")}</small>
+                            <video controls style={{ width: "100%", maxHeight: 520, borderRadius: 8, background: "#000" }}
+                              src={`/api/video/stream?path=${encodeURIComponent(vp)}`} preload="metadata">
+                            </video>
                           </div>
-                        )}
-                      </div>
+                        ))
+                      ) : (
+                        <div style={{ textAlign: "center", padding: 20, color: "var(--text-muted)", background: "rgba(0,0,0,0.03)", borderRadius: 8 }}>
+                          <Video size={24} /><p style={{ marginTop: 8, fontSize: 12 }}>选中素材后自动匹配共享盘视频</p>
+                        </div>
+                      )}
                     </div>
                     {isAdmin && (
                       <button className="btn-ghost" style={{ marginTop: 12 }} onClick={async () => {
@@ -390,7 +412,7 @@ export function App() {
           <div className="view">
             <div className="kpi-grid">
               {acne?.products?.slice(0, 4).map((p, i) => (
-                <KpiCard key={i} label={p.name.slice(0, 20)} value={money(p.spend)} sub={`净成交 ${money(p.net_gmv)} · ROI ${roi(p.net_roi)} · 订单 ${numberText(p.net_orders)}`} accent={i === 0} />
+                <KpiCard key={i} label={String(p.name).slice(0, 20)} value={money(p.spend)} sub={`净成交 ${money(p.net_gmv)} · 净ROI ${roi(p.net_roi)} · 净订单 ${numberText(p.net_orders)}`} accent={i === 0} />
               ))}
             </div>
             <div className="card glass">
@@ -419,7 +441,7 @@ export function App() {
               <div className="card-head"><h3>计划明细</h3></div>
               <div className="card-body">
                 <table className="mini-table">
-                  <thead><tr><th>计划名称</th><th>消耗</th><th>成交</th><th>净ROI</th><th>净订单</th></tr></thead>
+                  <thead><tr><th>计划名称</th><th>整体消耗</th><th>整体成交金额</th><th>净成交ROI</th><th>净成交订单</th></tr></thead>
                   <tbody>
                     {data?.planSummary?.map((p, i) => (
                       <tr key={i}><td><strong>{p.plan_name}</strong></td><td>{money(p.spend)}</td><td>{money(p.gross_gmv)}</td><td>{roi(p.net_roi)}</td><td>{numberText(p.net_orders)}</td></tr>
@@ -448,10 +470,9 @@ export function App() {
                   <thead><tr><th>类型</th><th>日期</th><th>状态</th><th>飞书链接</th><th>生成时间</th></tr></thead>
                   <tbody>
                     {reportLogs.map((l: any) => {
-                      const typeLabel: Record<string, string> = { daily: "日报", weekly: "周报", monthly: "月报", manual: "手动" };
-                      return (
-                      <tr key={l.id}><td>{typeLabel[l.report_type] || l.report_type}</td><td>{l.date_from}</td><td>{l.status}</td><td>{l.feishu_url ? <a href={l.feishu_url} target="_blank" rel="noreferrer">查看</a> : "-"}</td><td>{l.created_at?.slice(0, 19)}</td></tr>
-                    );})}
+                      const tl: Record<string, string> = { daily: "日报", weekly: "周报", monthly: "月报", manual: "手动" };
+                      return (<tr key={l.id}><td>{tl[l.report_type] || l.report_type}</td><td>{l.date_from}</td><td>{l.status}</td><td>{l.feishu_url ? <a href={l.feishu_url} target="_blank" rel="noreferrer">查看</a> : "-"}</td><td>{l.created_at?.slice(0, 19)}</td></tr>);
+                    })}
                     {!reportLogs.length && <tr><td colSpan={5} style={{ textAlign: "center", color: "var(--text-muted)" }}>暂无报告记录</td></tr>}
                   </tbody>
                 </table>
@@ -460,7 +481,6 @@ export function App() {
           </div>
         )}
 
-        {/* ====== Admin ====== */}
         {view === "admin" && isAdmin && <AdminPanel />}
       </main>
     </div>

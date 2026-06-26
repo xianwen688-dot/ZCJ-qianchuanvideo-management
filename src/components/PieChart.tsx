@@ -1,10 +1,5 @@
 import { useMemo } from "react";
-import {
-  Chart as ChartJS,
-  ArcElement,
-  Tooltip,
-  Legend,
-} from "chart.js";
+import { Chart as ChartJS, ArcElement, Tooltip, Legend } from "chart.js";
 import { Doughnut } from "react-chartjs-2";
 import { money } from "../lib/format";
 
@@ -17,9 +12,11 @@ interface Props {
 const COLORS = ["#5b6eec", "#10b981", "#f59e0b", "#ef4444", "#818cf8"];
 
 export function PieChart({ data }: Props) {
+  const total = useMemo(() => data.reduce((s, d) => s + d.value, 0), [data]);
+
   const chartData = useMemo(
     () => ({
-      labels: data.map((d) => `${d.label} (${money(d.value)})`),
+      labels: data.map((d) => d.label),
       datasets: [
         {
           data: data.map((d) => d.value),
@@ -37,7 +34,7 @@ export function PieChart({ data }: Props) {
     () => ({
       responsive: true,
       maintainAspectRatio: false,
-      cutout: "58%",
+      cutout: "55%",
       plugins: {
         legend: {
           position: "bottom" as const,
@@ -46,6 +43,19 @@ export function PieChart({ data }: Props) {
             padding: 14,
             font: { size: 11 },
             color: "#475569",
+            generateLabels: (chart: any) => {
+              const ds = chart.data.datasets[0];
+              return chart.data.labels.map((label: string, i: number) => ({
+                text: `${label}: ${money(ds.data[i])} (${total > 0 ? ((ds.data[i] / total) * 100).toFixed(1) : 0}%)`,
+                fillStyle: ds.backgroundColor[i],
+                strokeStyle: ds.backgroundColor[i],
+                lineWidth: 0,
+                hidden: false,
+                index: i,
+                pointStyle: "circle",
+                rotation: 0,
+              }));
+            },
           },
         },
         tooltip: {
@@ -53,12 +63,15 @@ export function PieChart({ data }: Props) {
           padding: 12,
           cornerRadius: 8,
           callbacks: {
-            label: (ctx: any) => ` ${ctx.label}`,
+            label: (ctx: any) => {
+              const v = ctx.raw as number;
+              return ` 消耗: ${money(v)}  (${total > 0 ? ((v / total) * 100).toFixed(1) : 0}%)`;
+            },
           },
         },
       },
     }),
-    []
+    [data, total]
   );
 
   if (!data.length) {
@@ -66,7 +79,7 @@ export function PieChart({ data }: Props) {
   }
 
   return (
-    <div style={{ height: 220 }}>
+    <div style={{ height: 260 }}>
       <Doughnut data={chartData} options={options} />
     </div>
   );
