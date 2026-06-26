@@ -37,20 +37,29 @@ function findCsvFiles(dir: string): string[] {
 }
 
 async function scanAll(onImport: WatchCallback, onError: (msg: string) => void) {
-  for (const dir of DATA_PATHS) {
-    if (!fs.existsSync(dir)) continue;
-    for (const fp of findCsvFiles(dir)) {
-      const ft = detectFileType(fp);
-      if (!ft) continue;
-      try {
-        const result = await importReportFile(fp);
-        if (!result.skipped) {
-          onImport({ type: "added", filePath: fp, fileType: ft, timestamp: new Date().toISOString() });
-          console.log(`[scan] 导入: ${result.fileName} (${result.inserted}行)`);
-        }
-      } catch (err) {
-        onError(`扫描导入失败 ${path.basename(fp)}: ${err instanceof Error ? err.message : String(err)}`);
+  // Only scan the first accessible directory, and only the latest file per type
+  const dir = DATA_PATHS.find((d) => fs.existsSync(d));
+  if (!dir) return;
+  const byType: Map<string, string> = new Map();
+  for (const fp of findCsvFiles(dir)) {
+    const ft = detectFileType(fp);
+    if (!ft) continue;
+    const mt = fs.statSync(fp).mtimeMs;
+    const existing = byType.get(ft);
+    if (!existing || mt > fs.statSync(existing).mtimeMs) {
+      byType.set(ft, fp);
+    }
+  }
+  for (const fp of byType.values()) {
+    const ft = detectFileType(fp)!;
+    try {
+      const result = await importReportFile(fp);
+      if (!result.skipped) {
+        onImport({ type: "added", filePath: fp, fileType: ft, timestamp: new Date().toISOString() });
+        console.log(`[scan] 导入: ${result.fileName} (${result.inserted}行)`);
       }
+    } catch (err) {
+      onError(`扫描导入失败 ${path.basename(fp)}: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 }

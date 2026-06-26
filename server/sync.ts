@@ -57,6 +57,22 @@ function walkFiles(rootPath: string): string[] {
   return files;
 }
 
+/** 从目录中找出每类型的最新CSV文件 */
+function findLatestFiles(rootPath: string): string[] {
+  if (!fs.existsSync(rootPath)) return [];
+  const byType: Map<string, { path: string; mtime: number }> = new Map();
+  for (const fp of walkFiles(rootPath)) {
+    const ft = detectFileType(fp);
+    if (!ft) continue;
+    const mt = fs.statSync(fp).mtimeMs;
+    const existing = byType.get(ft);
+    if (!existing || mt > existing.mtime) {
+      byType.set(ft, { path: fp, mtime: mt });
+    }
+  }
+  return Array.from(byType.values()).map((v) => v.path);
+}
+
 export async function runFullSync(): Promise<SyncResult> {
   const result: SyncResult = {
     startedAt: new Date().toISOString(),
@@ -66,21 +82,21 @@ export async function runFullSync(): Promise<SyncResult> {
     errors: [],
   };
 
-  for (const rootPath of DATA_PATHS) {
-    if (!fs.existsSync(rootPath)) {
-      result.errors.push(`目录不可访问: ${rootPath}`);
-      continue;
-    }
-    for (const filePath of walkFiles(rootPath)) {
-      const fileType = detectFileType(filePath);
-      if (!fileType) continue;
-      try {
-        const imported = await importReportFile(filePath);
-        result.files.push(imported);
-        result.totalRows += imported.inserted;
-      } catch (err) {
-        result.errors.push(`${path.basename(filePath)}: ${err instanceof Error ? err.message : String(err)}`);
-      }
+  // Only use first accessible path (prefer E:drive over Z:)
+  const rootPath = DATA_PATHS.find((p) => fs.existsSync(p)) || DATA_PATHS[0];
+  if (!fs.existsSync(rootPath)) {
+    result.errors.push(`无可访问的数据目录`);
+    result.finishedAt = new Date().toISOString();
+    return result;
+  }
+
+  for (const filePath of findLatestFiles(rootPath)) {
+    try {
+      const imported = await importReportFile(filePath);
+      result.files.push(imported);
+      result.totalRows += imported.inserted;
+    } catch (err) {
+      result.errors.push(`${path.basename(filePath)}: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
