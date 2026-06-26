@@ -129,7 +129,7 @@ app.get("/api/video/stream", optionalAuth, (req, res) => {
 // ====== Materials API ======
 app.get("/api/materials", optionalAuth, (req, res) => {
   const search = req.query.search ? String(req.query.search) : "";
-  const sortBy = ["spend", "gross_roi", "gross_orders", "plays"].includes(String(req.query.sortBy ?? ""))
+  const sortBy = ["spend", "gross_roi", "gross_orders", "plays", "net_gmv", "completion_rate", "click_rate"].includes(String(req.query.sortBy ?? ""))
     ? String(req.query.sortBy)
     : "spend";
   const limit = Math.min(Math.max(Number(req.query.limit ?? 20), 1), 100);

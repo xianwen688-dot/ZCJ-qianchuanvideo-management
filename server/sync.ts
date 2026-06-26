@@ -252,28 +252,37 @@ export function getDailyTrends(df?: DateFilter) {
   `).all();
 }
 
-/** 来源分布 */
+/** 来源分布 (消耗) */
+function classifySource(name: string): string {
+  if (/AIGC|AI生成|AI剪辑|ai剪辑|ai生成|半ai|纯AI|半AI/i.test(name)) return "AIGC/AI剪辑";
+  if (/达人|素人/i.test(name)) return "达人素材";
+  return "本地上传";
+}
+
 export function getSourceDistribution(df?: DateFilter) {
   const dc = dateClauseAll(df);
   const rows = db.prepare(`
-    SELECT material_name, SUM(spend) AS spend
+    SELECT material_name, SUM(spend) AS spend, SUM(net_gmv) AS net_gmv
     FROM material_metrics
     ${dc.where} AND material_name != 'AIGC动态创意视频素材集合'
     GROUP BY material_name
-  `).all(...dc.params) as Array<{ material_name: string; spend: number }>;
+  `).all(...dc.params) as Array<{ material_name: string; spend: number; net_gmv: number }>;
 
-  let aigc = 0, daren = 0, local = 0;
+  const spendMap: Record<string, number> = {};
+  const netMap: Record<string, number> = {};
   for (const row of rows) {
-    const name = row.material_name;
-    if (/AIGC|AI生成|AI剪辑|ai剪辑|ai生成|半ai|纯AI|半AI/i.test(name)) aigc += row.spend;
-    else if (/达人|素人/i.test(name)) daren += row.spend;
-    else local += row.spend;
+    const cat = classifySource(row.material_name);
+    spendMap[cat] = (spendMap[cat] || 0) + (row.spend || 0);
+    netMap[cat] = (netMap[cat] || 0) + (row.net_gmv || 0);
   }
-  return [
-    { label: "本地上传", value: local },
-    { label: "AIGC/AI剪辑", value: aigc },
-    { label: "达人素材", value: daren },
-  ].filter((d) => d.value > 0);
+
+  const toList = (m: Record<string, number>) =>
+    Object.entries(m).map(([label, value]) => ({ label, value })).filter((d) => d.value > 0);
+
+  return {
+    bySpend: toList(spendMap),
+    byNet: toList(netMap),
+  };
 }
 
 /** 计划汇总 */

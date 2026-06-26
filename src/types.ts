@@ -119,8 +119,8 @@ export interface TrendPoint {
 }
 
 export interface SourceDist {
-  label: string;
-  value: number;
+  bySpend: { label: string; value: number }[];
+  byNet: { label: string; value: number }[];
 }
 
 export interface PlanSummary {
@@ -141,7 +141,7 @@ export interface DashboardData {
   trends: TrendPoint[];
   topByRoi: MaterialMetric[];
   topByOrders: MaterialMetric[];
-  sourceDist: SourceDist[];
+  sourceDist: SourceDist;
   planSummary: PlanSummary[];
 }
 
