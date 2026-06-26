@@ -198,6 +198,7 @@ body::after {
 
 /* ====== Two Column ====== */
 .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-bottom: 20px; }
+.materials-grid { display: grid; grid-template-columns: 1.55fr 0.45fr; gap: 16px; margin-bottom: 20px; }
 
 /* ====== Card ====== */
 .card {
@@ -244,7 +245,7 @@ body::after {
 .sort-arrow { margin-left: 4px; font-size: 9px; color: var(--brand); }
 
 /* ====== Detail Panel ====== */
-.detail-panel { position: sticky; top: 100px; max-height: calc(100vh - 140px); overflow: auto; }
+.detail-panel { position: sticky; top: 100px; max-height: calc(100vh - 140px); overflow: auto; min-width: 280px; }
 .mini-metrics { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
 .metric-card {
   padding: 12px; border-radius: var(--radius-sm);
@@ -347,7 +348,7 @@ body::after {
 /* ====== Responsive ====== */
 @media (max-width: 1200px) {
   .kpi-grid { grid-template-columns: repeat(2, 1fr); }
-  .grid-2 { grid-template-columns: 1fr; }
+  .grid-2, .materials-grid { grid-template-columns: 1fr; }
   .acne-grid { grid-template-columns: repeat(2, 1fr); }
   .detail-panel { position: static; max-height: none; }
 }

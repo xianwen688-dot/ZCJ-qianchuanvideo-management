@@ -251,21 +251,21 @@ export function App() {
       {view === "materials" && (<div className="view">
         {video && (<><div className="kpi-grid"><KpiCard label="视频整体消耗" value={money(video.spend)} accent /><KpiCard label="视频整体成交金额" value={money(video.gross_gmv)} /><KpiCard label="视频整体支付ROI" value={roi(video.gross_roi)} /><KpiCard label="视频净成交ROI" value={roi(video.net_roi)} /></div>
           <div className="kpi-grid"><KpiCard label="视频净成交金额" value={money(video.net_gmv)} valueColor={warmOrange} /><KpiCard label="视频净成交订单数" value={numberText(video.net_orders)} /><KpiCard label="视频播放数" value={numberText(video.plays)} sub={`${video.material_count} 个素材`} /><KpiCard label="视频整体点击率" value={percent(video.avg_click_rate)} /></div></>)}
-        <div className="grid-2">
-          <div className="card glass">
+        <div className="materials-grid">
+          <div className="card glass" style={{ overflow: "hidden" }}>
             <div className="card-head" style={{flexWrap:"wrap",gap:8}}><h3>素材列表</h3><div style={{display:"flex",gap:8,alignItems:"center"}}><input className="search-input" placeholder="搜索素材名称..." value={search} onChange={e=>{setSearch(e.target.value);setMaterialPage(1);}} onKeyDown={e=>{if(e.key==="Enter"){setMaterialPage(1);loadMaterials();}}} /><span style={{fontSize:12,color:"var(--text-muted)",whiteSpace:"nowrap"}}>共 {materialTotal} 条</span></div></div>
-            <div className="card-body">
-              <table className="mini-table"><thead><tr>
-                <th>素材名称</th>
+            <div className="card-body" style={{ overflowX: "auto" }}>
+              <table className="mini-table" style={{ minWidth: 780 }}><thead><tr>
+                <th style={{ minWidth: 260 }}>素材名称</th>
                 <SortTh col="spend" label="整体消耗" currentSort={matSort} currentDir={matSortDir} onClick={changeSort} />
                 <SortTh col="gross_roi" label="整体支付ROI" currentSort={matSort} currentDir={matSortDir} onClick={changeSort} />
-                <SortTh col="gross_orders" label="整体成交订单" currentSort={matSort} currentDir={matSortDir} onClick={changeSort} />
+                <SortTh col="gross_orders" label="成交订单" currentSort={matSort} currentDir={matSortDir} onClick={changeSort} />
                 <SortTh col="plays" label="播放数" currentSort={matSort} currentDir={matSortDir} onClick={changeSort} />
                 <SortTh col="completion_rate" label="完播率" currentSort={matSort} currentDir={matSortDir} onClick={changeSort} />
                 <SortTh col="net_gmv" label="净成交金额" currentSort={matSort} currentDir={matSortDir} onClick={changeSort} />
-                <th></th>
+                <th style={{ width: 56 }}></th>
               </tr></thead><tbody>
-                {materials.map(m=>(<tr key={m.id}><td><strong>{String(m.material_name).slice(0,50)}</strong></td><td>{money(m.spend)}</td><td>{roi(m.gross_roi)}</td><td>{numberText(m.gross_orders)}</td><td>{numberText(m.plays)}</td><td>{percent(m.completion_rate)}</td><td>{money(m.net_gmv)}</td><td><button className="btn-text" onClick={()=>openDetail(m.id)}>详情</button></td></tr>))}
+                {materials.map(m=>(<tr key={m.id}><td><strong title={String(m.material_name)}>{String(m.material_name).slice(0,42)}{m.material_name.length > 42 ? "..." : ""}</strong></td><td>{money(m.spend)}</td><td>{roi(m.gross_roi)}</td><td>{numberText(m.gross_orders)}</td><td>{numberText(m.plays)}</td><td>{percent(m.completion_rate)}</td><td style={{color:"#c7821a",fontWeight:700}}>{money(m.net_gmv)}</td><td><button className="btn-ghost" style={{padding:"4px 10px",fontSize:12,minHeight:28}} onClick={()=>openDetail(m.id)}>详情</button></td></tr>))}
               </tbody></table>
               {totalPages > 1 && (<div style={{display:"flex",justifyContent:"center",alignItems:"center",gap:8,marginTop:14}}>
                 <button className="btn-ghost" disabled={materialPage<=1} onClick={()=>setMaterialPage(p=>Math.max(1,p-1))} style={{minWidth:80}}>← 上一页</button>
