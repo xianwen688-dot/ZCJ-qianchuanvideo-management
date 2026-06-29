@@ -316,17 +316,21 @@ cron.schedule("0 * * * *", async () => {
 });
 
 // ====== Start ======
-app.listen(PORT, "0.0.0.0", () => {
+import { reimportAll } from "./importer";
+
+app.listen(PORT, "0.0.0.0", async () => {
   const hostname = os.hostname();
   console.log(`抖音视频投放管理系统`);
   console.log(`  Local:  http://localhost:${PORT}`);
   console.log(`  LAN:    http://${hostname}:${PORT}`);
-  console.log(`  定时任务: 日报(每日9:30) 周报(周一9:30) 月报(每月1日9:30)`);
-  console.log("  数据刷新: 文件变更实时监控 + 每半小时整点全量扫描(9:00/9:30/10:00...)");
+  console.log("  定时任务: 日报(每日9:30) 周报(周一9:30) 月报(每月1日9:30)");
 
-  // 启动文件监控
+  // 启动时自动重导最新数据 (防翻倍: 清空→导入→验证)
+  try { await reimportAll(); } catch (err) { console.error("[startup] 数据导入失败:", err); }
+
+  // 启动定时扫描
   startWatching(
-    (event) => { console.log(`[watch] ${event.type}: ${event.filePath}`); },
-    (msg) => { console.error(`[watch] ${msg}`); }
+    (event) => { console.log(`[watcher] ${event.type}: ${event.filePath}`); },
+    (msg) => { console.error(`[watcher] ${msg}`); }
   );
 });

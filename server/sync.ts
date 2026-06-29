@@ -1,9 +1,6 @@
-import fs from "node:fs";
 import path from "node:path";
 import { db } from "./db";
-import { DATA_PATHS } from "./config";
-import { detectFileType } from "./parser";
-import { importReportFile, type ImportResult } from "./importer";
+import { findLatestFiles, importReportFile, type ImportResult } from "./importer";
 
 // ====== 日期过滤辅助 ======
 interface DateFilter {
@@ -40,57 +37,10 @@ export interface SyncResult {
   errors: string[];
 }
 
-function walkFiles(rootPath: string): string[] {
-  const files: string[] = [];
-  if (!fs.existsSync(rootPath)) return files;
-  const stack = [rootPath];
-  while (stack.length) {
-    const current = stack.pop()!;
-    let entries: fs.Dirent[];
-    try { entries = fs.readdirSync(current, { withFileTypes: true }); } catch { continue; }
-    for (const entry of entries) {
-      const full = path.join(current, entry.name);
-      if (entry.isDirectory()) stack.push(full);
-      else if (entry.isFile() && /\.(csv|xlsx)$/i.test(entry.name)) files.push(full);
-    }
-  }
-  return files;
-}
-
-/** 从目录中找出每类型的最新CSV文件 */
-function findLatestFiles(rootPath: string): string[] {
-  if (!fs.existsSync(rootPath)) return [];
-  const byType: Map<string, { path: string; mtime: number }> = new Map();
-  for (const fp of walkFiles(rootPath)) {
-    const ft = detectFileType(fp);
-    if (!ft) continue;
-    const mt = fs.statSync(fp).mtimeMs;
-    const existing = byType.get(ft);
-    if (!existing || mt > existing.mtime) {
-      byType.set(ft, { path: fp, mtime: mt });
-    }
-  }
-  return Array.from(byType.values()).map((v) => v.path);
-}
-
 export async function runFullSync(): Promise<SyncResult> {
-  const result: SyncResult = {
-    startedAt: new Date().toISOString(),
-    finishedAt: "",
-    files: [],
-    totalRows: 0,
-    errors: [],
-  };
+  const result: SyncResult = { startedAt: new Date().toISOString(), finishedAt: "", files: [], totalRows: 0, errors: [] };
 
-  // Only use first accessible path (prefer E:drive over Z:)
-  const rootPath = DATA_PATHS.find((p) => fs.existsSync(p)) || DATA_PATHS[0];
-  if (!fs.existsSync(rootPath)) {
-    result.errors.push(`无可访问的数据目录`);
-    result.finishedAt = new Date().toISOString();
-    return result;
-  }
-
-  for (const filePath of findLatestFiles(rootPath)) {
+  for (const filePath of findLatestFiles()) {
     try {
       const imported = await importReportFile(filePath);
       result.files.push(imported);

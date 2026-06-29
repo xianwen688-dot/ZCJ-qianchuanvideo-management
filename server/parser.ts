@@ -36,13 +36,23 @@ export function parseCsvRows(filePath: string): Record<string, string>[] {
   }
   const buffer = fs.readFileSync(filePath);
   const text = decodeText(buffer);
-  return parse(text, {
-    columns: true,
-    bom: true,
+  const rawRows = parse(text, {
     skip_empty_lines: true,
     relax_column_count: true,
     trim: true,
-  }) as Record<string, string>[];
+  }) as string[][];
+
+  if (rawRows.length < 2) return [];
+  const headers = rawRows[0].map(cleanCell);
+
+  // Build objects, truncating extra columns (some CSV rows have extra trailing data)
+  return rawRows.slice(1).map((row) => {
+    const obj: Record<string, string> = {};
+    for (let i = 0; i < headers.length; i++) {
+      obj[headers[i] || `col${i}`] = row[i]?.trim() ?? "";
+    }
+    return obj;
+  });
 }
 
 function parseXlsxRows(filePath: string): Record<string, string>[] {
