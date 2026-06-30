@@ -4,6 +4,15 @@ import crypto from "node:crypto";
 import { db } from "./db";
 import { detectFileType, parseCsvRows, parseVideoRow, parseProductRow, parsePlanRow, detectDateRange } from "./parser";
 
+// ====== 导入互斥锁 (Promise-chain, 串行化所有导入) ======
+let importQueue: Promise<void> = Promise.resolve();
+
+export function withImportLock<T>(fn: () => Promise<T>): Promise<T> {
+  return new Promise((resolve, reject) => {
+    importQueue = importQueue.then(() => fn().then(resolve, reject), reject);
+  });
+}
+
 // ====== 防重复铁律 ======
 // 导入前先清空该类型的所有数据, 再导入最新文件。
 // 永不累积, 永不依赖哈希去重。
@@ -68,7 +77,7 @@ export async function importReportFile(filePath: string): Promise<ImportResult> 
   let inserted = 0;
 
   if (fileType === "video") {
-    const stmt = db.prepare(`INSERT INTO material_metrics (material_id,material_name,material_created_at,metric_date,
+    const stmt = db.prepare(`INSERT OR IGNORE INTO material_metrics (material_id,material_name,material_created_at,metric_date,
       impressions,clicks,click_rate,conversion_rate,spend,
       gross_orders,gross_gmv,gross_roi,order_cost,cpm,cpc,
       net_roi,net_gmv,net_orders,net_order_cost,net_settlement_rate,
@@ -87,7 +96,7 @@ export async function importReportFile(filePath: string): Promise<ImportResult> 
       inserted++;
     }
   } else if (fileType === "product") {
-    const stmt = db.prepare(`INSERT INTO product_metrics (product_id,product_name,metric_date,
+    const stmt = db.prepare(`INSERT OR IGNORE INTO product_metrics (product_id,product_name,metric_date,
       impressions,clicks,click_rate,conversion_rate,spend,gross_gmv,gross_roi,order_cost,gross_orders,
       actual_pay_amount,platform_subsidy,net_roi,net_gmv,net_orders,
       net_order_cost,net_settlement_rate,refund_rate_1h,refund_amount_1h,
@@ -105,7 +114,7 @@ export async function importReportFile(filePath: string): Promise<ImportResult> 
       inserted++;
     }
   } else if (fileType === "plan") {
-    const stmt = db.prepare(`INSERT INTO plan_metrics (plan_name,plan_id,metric_date,
+    const stmt = db.prepare(`INSERT OR IGNORE INTO plan_metrics (plan_name,plan_id,metric_date,
       spend,gross_orders,gross_gmv,gross_roi,order_cost,
       actual_pay_amount,platform_subsidy,net_roi,net_gmv,
       net_order_cost,net_orders,net_settlement_rate,
@@ -168,8 +177,12 @@ export function findLatestFiles(): string[] {
   return Array.from(byType.values()).map(v => v.path);
 }
 
-/** 一键全部重导: 清空 → 导入最新3文件 → 验证 */
+/** 一键全部重导: 清空 → 导入最新3文件 → 验证 (自动获取互斥锁) */
 export async function reimportAll() {
+  return withImportLock(_reimportAll);
+}
+
+async function _reimportAll() {
   console.log("[reimport] 开始全量重导...");
   // 清空所有
   db.prepare("DELETE FROM material_metrics").run();

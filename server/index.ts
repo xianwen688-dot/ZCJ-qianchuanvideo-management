@@ -11,6 +11,7 @@ import { getDashboardData, runFullSync } from "./sync";
 import { startWatching } from "./watcher";
 import {
   generateDailyReport,
+  generateDailyReportText,
   generateWeeklyReport,
   generateMonthlyReport,
   saveReport,
@@ -18,6 +19,7 @@ import {
 } from "./reports";
 import {
   pushReport,
+  sendFeishuMessage,
   getFeishuConfig,
   setFeishuChatId,
 } from "./feishu-client";
@@ -61,22 +63,17 @@ app.post("/api/settings", requireAdmin, (req, res) => {
 });
 
 // ====== Sync ======
-let syncRunning = false;
-
 app.post("/api/sync/run", requireAdmin, async (_req, res) => {
-  if (syncRunning) { res.status(409).json({ error: "同步正在运行" }); return; }
-  syncRunning = true;
   const jobId = createJob({ type: "sync", targetType: "workspace" });
   startJob(jobId);
   try {
+    // runFullSync 自带互斥锁和校验, 不需要额外 syncRunning
     const result = await runFullSync();
     finishJob(jobId, result);
     res.json(result);
   } catch (err) {
     failJob(jobId, err);
     res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
-  } finally {
-    syncRunning = false;
   }
 });
 
@@ -270,18 +267,29 @@ if (fs.existsSync(distPath)) {
   });
 }
 
-// ====== Cron: Daily Report 9:30 ======
-cron.schedule("30 9 * * *", async () => {
-  console.log("[cron] 开始生成日报...");
+// ====== Shared: send daily report (default: yesterday) ======
+async function sendDailyReport(dateStr?: string) {
+  // 默认汇报昨天数据（每日9:30触发的日报）
+  const targetDate = dateStr || (() => {
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    return yesterday.toISOString().slice(0, 10);
+  })();
+  console.log(`[cron] 开始生成日报 (${targetDate})...`);
   try {
-    const report = generateDailyReport();
+    const report = generateDailyReportText(targetDate);
     const saved = saveReport("daily", report.content, report.date, report.date);
-    const result = await pushReport(`千川视频投放日报 - ${report.date}`, report.content, "daily");
-    console.log(`[cron] 日报: ${result.ok ? "已推送" : "失败"}`);
+    const ok = await sendFeishuMessage(report.content);
+    console.log(`[cron] 日报: ${ok.ok ? "已推送" : "失败"}`);
+    return ok;
   } catch (err) {
     console.error("[cron] 日报生成失败:", err);
+    return { ok: false };
   }
-});
+}
+
+// ====== Cron: Daily Report 9:30 ======
+cron.schedule("30 9 * * *", () => sendDailyReport());
 
 // ====== Cron: Weekly Report every Monday 9:30 ======
 cron.schedule("30 9 * * 1", async () => {
@@ -317,6 +325,7 @@ cron.schedule("0 * * * *", async () => {
 
 // ====== Start ======
 import { reimportAll } from "./importer";
+import { db as dbForCheck } from "./db";
 
 app.listen(PORT, "0.0.0.0", async () => {
   const hostname = os.hostname();
@@ -325,8 +334,46 @@ app.listen(PORT, "0.0.0.0", async () => {
   console.log(`  LAN:    http://${hostname}:${PORT}`);
   console.log("  定时任务: 日报(每日9:30) 周报(周一9:30) 月报(每月1日9:30)");
 
-  // 启动时自动重导最新数据 (防翻倍: 清空→导入→验证)
+  // 启动时自动重导最新数据 (防翻倍: 清空→导入→验证, 带互斥锁)
   try { await reimportAll(); } catch (err) { console.error("[startup] 数据导入失败:", err); }
+
+  // 启动时补发昨日未推送的日报 (服务器重启/错过9:30定时触发时)
+  try {
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayStr = yesterday.toISOString().slice(0, 10);
+    // 检查今天是否已经为昨天生成过日报
+    const now = new Date();
+    const todayStr = now.toISOString().slice(0, 10);
+    const lastReport = dbForCheck.prepare(
+      "SELECT * FROM report_log WHERE report_type='daily' AND date_from=? AND date(created_at)=? ORDER BY created_at DESC LIMIT 1"
+    ).get(yesterdayStr, todayStr) as any;
+    if (!lastReport) {
+      // 9:30以后启动才补发 (在此之前正常cron会触发)
+      if (now.getHours() >= 9 && now.getMinutes() >= 30 || now.getHours() >= 10) {
+        console.log(`[startup] 检测到昨日(${yesterdayStr})日报未推送，自动补发...`);
+        await sendDailyReport(yesterdayStr);
+      }
+    }
+  } catch (err) { console.error("[startup] 补发日报检查失败:", err); }
+
+  // 启动时检查上次导入是否异常 (对比最近两个 post snapshot)
+  try {
+    const lastTwo = dbForCheck.prepare(
+      "SELECT * FROM import_snapshots WHERE snapshot_type='post' ORDER BY id DESC LIMIT 2"
+    ).all() as Array<{ spend: number; net_gmv: number; created_at: string }>;
+    if (lastTwo.length === 2) {
+      const [latest, prev] = lastTwo;
+      const ratio = prev.spend > 10 ? latest.spend / prev.spend : 1;
+      if (ratio > 1.7 && ratio < 2.3) {
+        console.error(`[startup] ⚠️ 上次导入后数据疑似翻倍! spend ${prev.spend.toFixed(0)}→${latest.spend.toFixed(0)} (${ratio.toFixed(2)}x)`);
+      } else if (ratio > 3 && prev.spend > 10) {
+        console.error(`[startup] ⚠️ 数据异常增长 ${ratio.toFixed(1)}x`);
+      } else {
+        console.log(`[startup] ✅ 最近导入正常 spend=${latest.spend.toFixed(2)}`);
+      }
+    }
+  } catch (err) { /* snapshot 表可能还不存在, 忽略 */ }
 
   // 启动定时扫描
   startWatching(

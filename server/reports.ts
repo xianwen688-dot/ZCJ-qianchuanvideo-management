@@ -4,6 +4,49 @@ import { db } from "./db";
 import { getProductSummary, getAcneStats, getVideoSummary, getTopMaterials, getDailyTrends, getPlanSummary } from "./sync";
 import { money, numberText, percent, roi } from "./format-utils";
 
+// ====== Plain-text Daily Report (新格式) ======
+export function generateDailyReportText(dateStr?: string) {
+  const today = dateStr || new Date().toISOString().slice(0, 10);
+  // 格式化中文日期 (如 "6月29日")
+  const d = new Date(today);
+  const dateLabel = `${d.getMonth() + 1}月${d.getDate()}日`;
+
+  // 当日数据 (按 metric_date 过滤)
+  const daySummary = getProductSummary({ from: today, to: today });
+  const dayAcne = getAcneStats({ from: today, to: today });
+
+  // 当月累计 (使用 '全部' 汇总行)
+  const mtdSummary = getProductSummary();
+  const mtdAcne = getAcneStats();
+
+  const lines: string[] = [];
+  lines.push(`${dateLabel}千川视频投放汇报:`);
+
+  // === 当日数据 ===
+  lines.push(`当日整体成交：${Math.round(daySummary.gross_gmv)}`);
+  lines.push(`当日净成交：${Math.round(daySummary.net_gmv)}`);
+  lines.push(`当日整体消耗：${daySummary.spend.toFixed(2)}`);
+  lines.push(`当日净成交ROI: ${daySummary.net_roi.toFixed(2)}`);
+  lines.push(`1小时内退款金额：${Math.round(daySummary.refund_amount_1h)}`);
+  lines.push("");
+
+  // === 当月累计 ===
+  lines.push(`当月净成交：${mtdSummary.net_gmv.toFixed(2)}`);
+  lines.push(`当月推广消耗：${mtdSummary.spend.toFixed(2)}`);
+  lines.push(`当月净成交ROI：${mtdSummary.net_roi.toFixed(2)}`);
+  lines.push(`减15%退货率净ROI：${mtdSummary.conservative_roi.toFixed(2)}`);
+  lines.push("");
+
+  // === 祛痘专项 (当日) ===
+  lines.push(`祛痘推广净成交：${Math.round(dayAcne.net_gmv)}`);
+  lines.push(`祛痘当日推广消耗：${dayAcne.spend.toFixed(2)}`);
+  lines.push(`祛痘当日推广ROI：${dayAcne.net_roi.toFixed(2)}`);
+  lines.push(`祛痘推广净订单数：${dayAcne.jinghua_net_orders}`);
+  lines.push(`祛痘精华霜净成交数:${dayAcne.jinghua_net_orders}`);
+
+  return { content: lines.join("\n"), type: "daily" as const, date: today, dateLabel };
+}
+
 const REPORTS_DIR = path.resolve(process.cwd(), "reports");
 
 // Ensure output dirs exist

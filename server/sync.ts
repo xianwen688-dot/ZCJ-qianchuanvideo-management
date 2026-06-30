@@ -1,6 +1,6 @@
 import path from "node:path";
 import { db } from "./db";
-import { findLatestFiles, importReportFile, type ImportResult } from "./importer";
+import { findLatestFiles, importReportFile, withImportLock, type ImportResult } from "./importer";
 
 // ====== 日期过滤辅助 ======
 interface DateFilter {
@@ -28,6 +28,54 @@ function dateClauseAll(df?: DateFilter): { where: string; params: string[] } {
   return { where: "WHERE metric_date = '全部'", params: [] };
 }
 
+// ====== 导入快照 & 校验 ======
+export interface SnapshotRow {
+  spend: number;
+  net_gmv: number;
+  net_orders: number;
+}
+
+export function captureSnapshot(type: "pre" | "post"): SnapshotRow {
+  const row = db.prepare(`
+    SELECT
+      COALESCE(SUM(spend), 0) AS spend,
+      COALESCE(SUM(net_gmv), 0) AS net_gmv,
+      COALESCE(SUM(net_orders), 0) AS net_orders
+    FROM product_metrics
+  `).get() as unknown as SnapshotRow;
+
+  db.prepare(
+    "INSERT INTO import_snapshots (snapshot_type, spend, net_gmv, net_orders, created_at) VALUES (?,?,?,?,?)"
+  ).run(type, row.spend, row.net_gmv, row.net_orders, new Date().toISOString());
+
+  return row;
+}
+
+export function verifyImport(pre: SnapshotRow | null) {
+  const post = captureSnapshot("post");
+  // 如果没有 pre snapshot (全新导入), 跳过校验
+  if (!pre || pre.spend <= 0) {
+    console.log(`[verify] ✅ 首次导入, spend=${post.spend.toFixed(2)}`);
+    return { ok: true, pass: true, message: "首次导入", pre, post };
+  }
+
+  const ratio = pre.spend > 10 ? post.spend / pre.spend : 1;
+
+  // 检测 ~2x 翻倍 (1.7-2.3)
+  if (ratio > 1.7 && ratio < 2.3 && pre.spend > 10) {
+    console.error(`[verify] ⚠️ 数据疑似翻倍! spend ${pre.spend.toFixed(2)}→${post.spend.toFixed(2)} (${ratio.toFixed(2)}x)`);
+    return { ok: false, pass: false, message: `⚠️ 疑似重复导入! 消耗从 ¥${pre.spend.toFixed(0)} 翻至 ¥${post.spend.toFixed(0)}`, pre, post };
+  }
+  // 检测 >3x 异常增长
+  if (ratio > 3 && pre.spend > 10) {
+    console.error(`[verify] ⚠️ 数据异常增长 ${ratio.toFixed(1)}x`);
+    return { ok: false, pass: false, message: `⚠️ 数据异常增长 ${ratio.toFixed(1)}x`, pre, post };
+  }
+
+  console.log(`[verify] ✅ 校验通过 spend=${post.spend.toFixed(2)} pre=${pre.spend.toFixed(2)} ratio=${ratio.toFixed(2)}`);
+  return { ok: true, pass: true, message: "通过", pre, post };
+}
+
 // ====== 全量同步 ======
 export interface SyncResult {
   startedAt: string;
@@ -35,10 +83,14 @@ export interface SyncResult {
   files: ImportResult[];
   totalRows: number;
   errors: string[];
+  verification?: { ok: boolean; pass: boolean; message: string; pre?: SnapshotRow | null; post?: SnapshotRow };
 }
 
-export async function runFullSync(): Promise<SyncResult> {
+async function _runFullSync(): Promise<SyncResult> {
   const result: SyncResult = { startedAt: new Date().toISOString(), finishedAt: "", files: [], totalRows: 0, errors: [] };
+
+  // 快照: 导入前
+  const pre = captureSnapshot("pre");
 
   for (const filePath of findLatestFiles()) {
     try {
@@ -51,7 +103,16 @@ export async function runFullSync(): Promise<SyncResult> {
   }
 
   result.finishedAt = new Date().toISOString();
+
+  // 快照: 导入后 + 校验
+  result.verification = verifyImport(pre);
+
   return result;
+}
+
+/** 公开的全量同步 — 自动获取互斥锁 */
+export function runFullSync(): Promise<SyncResult> {
+  return withImportLock(_runFullSync);
 }
 
 // ====== Dashboard 查询 (支持日期范围) ======

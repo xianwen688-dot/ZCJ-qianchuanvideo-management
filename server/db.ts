@@ -184,6 +184,35 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_report_files_hash ON report_files(hash);
   CREATE INDEX IF NOT EXISTS idx_report_log_type ON report_log(report_type, created_at);
   CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status, type, created_at);
+
+  -- ====== 防重复 UNIQUE 索引 ======
+  -- 先清理可能存在的重复行 (取每组最小的 id)
+  DELETE FROM material_metrics WHERE id NOT IN (
+    SELECT MIN(id) FROM material_metrics GROUP BY report_file_id, material_name, metric_date
+  );
+  DELETE FROM product_metrics WHERE id NOT IN (
+    SELECT MIN(id) FROM product_metrics GROUP BY report_file_id, product_id, metric_date
+  );
+  DELETE FROM plan_metrics WHERE id NOT IN (
+    SELECT MIN(id) FROM plan_metrics GROUP BY report_file_id, plan_id, metric_date
+  );
+
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_material_unique
+    ON material_metrics(report_file_id, material_name, metric_date);
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_product_unique
+    ON product_metrics(report_file_id, product_id, metric_date);
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_plan_unique
+    ON plan_metrics(report_file_id, plan_id, metric_date);
+
+  -- ====== 导入快照表 (每次导入前后记录 KPI, 用于翻倍检测) ======
+  CREATE TABLE IF NOT EXISTS import_snapshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    snapshot_type TEXT NOT NULL CHECK(snapshot_type IN ('pre','post')),
+    spend REAL NOT NULL DEFAULT 0,
+    net_gmv REAL NOT NULL DEFAULT 0,
+    net_orders REAL NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
+  );
 `);
 
 // ====== 默认设置 ======
